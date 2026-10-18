@@ -33,6 +33,29 @@ with little data. RackReady AI gives them transparent numbers in seconds.
 3. **Graceful fallback.** If the key is missing or the call fails (auth, rate limit, network), a
    rule-based narrative is shown instead, so the app never breaks.
 
+## How NVIDIA Nemotron and Nebius Token Factory are used
+- **Model.** The default model is **`nvidia/Nemotron-3.5-Super-VL`**, called through **Nebius Token Factory's
+  OpenAI-compatible endpoint** `https://api.tokenfactory.nebius.com/v1/` with the standard OpenAI Python SDK.
+  Other selectable Nemotron models are listed in `SUGGESTED_MODELS` in [`llm.py`](llm.py)
+  (`nvidia/Nemotron-3-Ultra-550b-a55b`, `nvidia/Nemotron-3_5-Lightning`, `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`),
+  and any other model id can be typed in the sidebar.
+- **Division of labour.** The deterministic engine (`engine.py`) owns every number. Nemotron receives the
+  engine output as JSON and writes only the narrative (executive summary, assumptions commentary, upgrade-path
+  recommendation, key risks, next steps). The system prompt casts it as a senior data center cost manager and
+  forbids it from inventing, recomputing or changing any figure.
+- **Streaming.** Output is streamed (`stream=True`) so the report appears as it is written.
+- **Reasoning stripped.** Nemotron is a reasoning model; any `<think>...</think>` block is removed from the
+  stream before display, so users only see the final answer.
+- **Rule-based fallback.** With no key, or on an auth, rate-limit, timeout or network error, a rule-based
+  narrative built from the same engine numbers is shown, so the app never breaks.
+- **What we learned about `max_tokens`.** A reasoning model spends tokens thinking before it answers. With a
+  small limit, the first live run came back blank because the budget ran out during reasoning. Raising
+  `max_tokens` to **16000** fixed it; the live run for the default 200-rack hall then took **about 11 seconds**.
+- **Where Token Factory sped up the workflow.** Serverless, pay-per-token access meant no GPU instances to
+  provision, no model hosting and no new SDK: one API key and a base URL change gave us several Nemotron sizes
+  to try from the same code path.
+- **Other Nebius tools.** None beyond Token Factory; no Nebius GPU instances or fine-tuning were used.
+
 ### Example result (defaults)
 200 racks · Northern Virginia · 15 → 140 kW/rack · Air → Closed-loop liquid · Tier III · N+1 · $0.08/kWh · 80% utilization
 
@@ -67,7 +90,8 @@ That is a **$162.5M penalty**, so the engine recommends building future-ready on
 - Downloads: the full report as Markdown and all tables as a CSV zip.
 - A "How it works" expander explains the domain in plain language.
 
-## Quick start
+## Setup (quick start)
+Requires Python 3.10+ (tested on 3.13).
 ```bash
 git clone https://github.com/koshasolanki/rackready-ai.git rackready_ai && cd rackready_ai
 python3 -m venv .venv
@@ -113,6 +137,7 @@ rackready_ai/
 ├── engine.py                    # ASSUMPTIONS + deterministic cost engine
 ├── llm.py                       # Nebius/Nemotron client, system prompt, fallback narrative
 ├── requirements.txt
+├── LICENSE                      # MIT
 ├── .streamlit/config.toml       # dark theme
 ├── .streamlit/secrets.toml.example
 ├── SAMPLE_INPUTS.md             # demo scenarios + 60-second script
@@ -132,3 +157,6 @@ Python · Streamlit · pandas · Plotly · OpenAI Python SDK · Nebius Token Fac
 ## Disclaimer
 RackReady AI is an early-stage planning tool. Unit rates are indicative 2026 benchmarks, not quotes.
 Validate against local pricing and a qualified estimator before making investment decisions.
+
+## License
+[MIT](LICENSE) © 2026 Kosha Solanki
