@@ -15,8 +15,16 @@ from datetime import date
 
 import streamlit as st
 
+# Force-reload local modules so a hot redeploy never mixes old and new code.
+import importlib as _il
+import engine as _engine, workbook_basis as _wb, llm as _llm, ui_common as _uic
+for _m in (_wb, _engine, _llm, _uic):
+    _il.reload(_m)
+
 import ui_fitout
 import ui_greenfield
+_il.reload(ui_fitout)
+_il.reload(ui_greenfield)
 import workbook_basis as WB
 from engine import (ASSUMPTIONS, COOLING_TYPES, D2C, D2C_AUTO_KW, D2C_NOTE, DEFAULT_INPUTS,
                     GF_REDUNDANCY, GREENFIELD, PLATFORM_CHOICES, PROJECT_TYPES, REGIONS,
