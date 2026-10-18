@@ -1,5 +1,5 @@
 """
-RackReady AI - Data Center Cost Modeling Agent
+RackReady AI - data center cost and design model for high-density AI racks.
 Built for Nebius x NVIDIA Build Week.
 
 Run:  streamlit run app.py
@@ -11,24 +11,20 @@ import io
 import json
 import os
 import zipfile
-from datetime import date
 
 import streamlit as st
 
 # Force-reload local modules so a hot redeploy never mixes old and new code.
 import importlib as _il
-import engine as _engine, workbook_basis as _wb, llm as _llm, ui_common as _uic
-for _m in (_wb, _engine, _llm, _uic):
+import platforms as _pl, design as _ds, engine as _engine, report as _rep, llm as _llm, ui_common as _uic, ui_views as _uiv
+for _m in (_pl, _ds, _engine, _rep, _llm, _uic, _uiv):
     _il.reload(_m)
 
-import ui_fitout
-import ui_greenfield
-_il.reload(ui_fitout)
-_il.reload(ui_greenfield)
-import workbook_basis as WB
-from engine import (ASSUMPTIONS, COOLING_TYPES, D2C, D2C_AUTO_KW, D2C_NOTE, DEFAULT_INPUTS,
-                    GF_REDUNDANCY, GREENFIELD, PLATFORM_CHOICES, PROJECT_TYPES, REGIONS,
-                    run_model, summary_for_llm)
+import engine as E
+import platforms as PL
+import report as R
+import ui_views as V
+from design import COOLING_TYPES, D2C, D2C_AUTO_KW, HYBRID
 from llm import (DEFAULT_BASE_URL, DEFAULT_MODEL, SUGGESTED_MODELS, LLMError,
                  fallback_narrative, resolve_api_key, stream_narrative)
 from ui_common import esc_md
@@ -37,13 +33,16 @@ st.set_page_config(page_title="RackReady AI", page_icon="⚡", layout="wide")
 
 st.markdown("""
 <style>
-.block-container {padding-top: 1.6rem; padding-bottom: 2rem;}
-div[data-testid="stMetric"] {background: #161B22; border: 1px solid #262C36;
-  border-radius: 10px; padding: 12px 16px;}
-div[data-testid="stMetricValue"] {font-size: 1.55rem;}
-.rr-sub {color: #9AA4B2; margin-top: -0.6rem; font-size: 1.02rem;}
+.block-container {padding-top: 1.4rem; padding-bottom: 2rem; max-width: 1400px;}
+div[data-testid="stMetric"] {background: #161B22; border: 1px solid #262C36; border-radius: 10px; padding: 10px 14px;}
+div[data-testid="stMetricValue"] {font-size: 1.45rem;}
+.rr-sub {color: #9AA4B2; margin-top: -0.6rem; font-size: 1.0rem;}
 .rr-badge {display:inline-block; background:#1f2a12; color:#76B900; border:1px solid #3d5a14;
-  border-radius: 999px; padding: 2px 10px; font-size: 0.8rem; margin-right: 6px;}
+  border-radius: 999px; padding: 2px 10px; font-size: 0.8rem; margin: 0 6px 4px 0;}
+@media (max-width: 640px) {
+  div[data-testid="stMetricValue"] {font-size: 1.15rem;}
+  .block-container {padding-left: 0.6rem; padding-right: 0.6rem;}
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -61,131 +60,187 @@ def get_secrets():
         return None
 
 
-def cooling_widget(container, label, kw, default, key):
+
+# ----------------------------------------------------------------- presets -> widget state
+D = E.DEFAULT_INPUTS
+PLATFORMS = list(PL.PLATFORMS) + [PL.CUSTOM]
+
+
+def _load_preset(name: str):
+    i = E.merged(E.PRESETS[name])
+    ss = st.session_state
+    ss["w_type"] = i["project_type"]
+    ss["w_name"] = i["project_name"]
+    ss["w_size_by"] = i["size_by"]
+    ss["w_mw"] = float(i["it_mw"])
+    ss["w_racks"] = int(i["racks"])
+    ss["w_platform"] = i["platform"]
+    ss["w_region"] = i["region"]
+    ss["w_res"] = i["resilience"]
+    ss["w_horizon"] = i["horizon"]
+    ss["w_cool"] = i["cooling"] or HYBRID
+    ss["w_cur_kw"] = float(i["current_kw"])
+    ss["w_cur_cool"] = i["current_cooling"]
+    ss["w_mtp"] = int(i["months_to_power"])
+    ss["w_dm"] = int(i["design_months"])
+    ss["w_cm"] = int(i["construction_months"])
+
+
+def _on_preset():
+    name = st.session_state.get("w_preset")
+    if name in E.PRESETS:
+        _load_preset(name)
+
+
+if "w_type" not in st.session_state:
+    st.session_state["w_preset"] = E.DEFAULT_PRESET
+    _load_preset(E.DEFAULT_PRESET)
+
+
+def cooling_widget(container, label, kw, key, help_):
     """Cooling selector: locked to D2C above 45 kW/rack, user choice at or below."""
     if kw > D2C_AUTO_KW:
         container.selectbox(label, [D2C], index=0, disabled=True, key=key + "_locked",
-                            help=D2C_NOTE)
-        container.caption(f"🔒 {D2C_NOTE}")
+                            help=f"{E.D2C_NOTE}: air and rear-door cooling cannot remove this much heat.")
+        container.caption(f"🔒 {E.D2C_NOTE}")
         return D2C
-    opts = COOLING_TYPES
-    return container.selectbox(label, opts, opts.index(default) if default in opts else 0,
-                               key=key, help=f"Your choice at ≤{D2C_AUTO_KW:.0f} kW/rack. {D2C_NOTE}.")
+    if st.session_state.get(key) not in COOLING_TYPES:
+        st.session_state[key] = HYBRID
+    return container.selectbox(label, COOLING_TYPES, key=key, help=help_ + f" Above {D2C_AUTO_KW:.0f} kW/rack "
+                               "the model switches to direct-to-chip liquid automatically.")
 
 
 # ----------------------------------------------------------------- sidebar
+inputs: dict = {}
 with st.sidebar:
     st.markdown("### ⚡ RackReady AI")
-    st.caption("Indicative planning model, not a bid.")
-    project_type = st.radio(
-        "Project type", PROJECT_TYPES, index=0, key="project_type",
-        format_func=lambda p: "🏢 Existing building fit-out" if p == PROJECT_TYPES[0]
-        else "🏗️ Greenfield: new build from scratch",
-        help="Fit-out = current vs future-ready in an existing hall. Greenfield = ONE new design "
-             "priced from scratch from your cost workbook.")
-    is_gf = project_type == GREENFIELD
-    D = DEFAULT_INPUTS
-    inputs = {"project_type": project_type}
-    with st.form("inputs"):
-        st.markdown("**Project**")
-        inputs["project_name"] = st.text_input(
-            "Project name", "AI Campus - greenfield" if is_gf else D["project_name"])
-        if not is_gf:
-            inputs["racks"] = int(st.number_input("Number of racks", 10, 5000, D["racks"], step=10))
+    st.caption("Indicative planning estimate, not a bid. Results update as you type.")
+    st.selectbox("Start from a preset", list(E.PRESETS), key="w_preset", on_change=_on_preset,
+                 help="Loads a typical project. You can then change any input.")
+    inputs["project_type"] = st.radio(
+        "Project type", E.PROJECT_TYPES, key="w_type",
+        format_func=lambda p: "🏗️ Greenfield: new build" if p == E.GREENFIELD else "🏢 Existing building fit-out",
+        help="Greenfield = one new campus built from scratch. Fit-out = new racks in an existing building, "
+             "compared with keeping today's racks.")
+    gf = inputs["project_type"] == E.GREENFIELD
+    inputs["size_by"] = st.radio("Size by", ["IT MW", "Racks"], key="w_size_by", horizontal=True,
+                                 help="IT MW = critical IT load (GPU racks), not utility MW.")
+    if inputs["size_by"] == "IT MW":
+        inputs["it_mw"] = float(st.number_input("IT load (MW)", 0.5, 2000.0, step=5.0, key="w_mw",
+                                                help="Critical IT load of the GPU racks in MW."))
+    else:
+        inputs["racks"] = int(st.number_input("Number of racks", 1, 50000, step=10, key="w_racks",
+                                              help="GPU rack positions."))
+    inputs["platform"] = st.selectbox(
+        "GPU platform", PLATFORMS, key="w_platform",
+        format_func=lambda n: n if n == PL.CUSTOM else f"{n} · {PL.PLATFORMS[n]['kw']:,.0f} kW/rack"
+        + ("" if PL.PLATFORMS[n]["status"] == "shipping" else f" ({PL.PLATFORMS[n]['status']})"),
+        help="Sets rack power, weight, GPUs per rack, liquid share and the facility cost basis. Roadmap "
+             "platforms are labelled announced or estimated.")
+    if inputs["platform"] == PL.CUSTOM:
+        inputs["custom_kw"] = float(st.number_input("Custom density (kW/rack)", 5.0, 1500.0, 135.0, step=5.0,
+                                                    key="w_custom_kw", help="Average operating power per rack."))
+        kw_now = inputs["custom_kw"]
+    else:
+        kw_now = PL.PLATFORMS[inputs["platform"]]["kw"]
+    inputs["region"] = st.selectbox("Location", E.REGION_NAMES, key="w_region",
+                                    help="Sets the construction cost factor, land price and power price defaults.")
+    inputs["resilience"] = st.selectbox("Redundancy (tier)", list(E.RESILIENCE), key="w_res",
+                                        format_func=lambda k: E.RESILIENCE[k],
+                                        help="Generators, UPS and power paths. Tier wording is indicative "
+                                             "(Uptime Institute style), not a certification.")
+    inputs["horizon"] = st.selectbox("Future-proof horizon", list(E.HORIZONS), key="w_horizon",
+                                     format_func=lambda h: h if h == "Today only" else
+                                     f"{h} · {E.HORIZONS[h]:,.0f} kW/rack",
+                                     help="Target rack density to be ready for. The model prices retrofit later, "
+                                          "provisions now, or full future build on day one.")
+
+    with st.expander("Advanced", expanded=False):
+        inputs["project_name"] = st.text_input("Project name", key="w_name", help="Shown on reports.")
+        st.markdown("**Cooling**")
+        if gf:
+            inputs["cooling"] = cooling_widget(st, "Cooling", kw_now, "w_cool",
+                                               "At or below 45 kW/rack choose air or rear-door (hybrid).")
+        else:
+            inputs["cooling"] = cooling_widget(st, "Future-ready cooling", kw_now, "w_cool",
+                                               "Cooling for the new racks.")
+            st.markdown("**Existing hall today**")
+            inputs["current_kw"] = float(st.number_input("Current kW/rack", 3.0, 60.0, step=1.0, key="w_cur_kw",
+                                                         help="Average power of today's racks."))
+            inputs["current_cooling"] = cooling_widget(st, "Current cooling", inputs["current_kw"], "w_cur_cool",
+                                                       "Today's cooling system.")
             c1, c2 = st.columns(2)
-            inputs["current_kw"] = float(c1.number_input("Current kW/rack", 5.0, 60.0, D["current_kw"], step=1.0))
-            inputs["future_kw"] = float(c2.slider("Future-ready kW/rack", 40, 150, int(D["future_kw"]), step=5))
-            inputs["current_cooling"] = cooling_widget(st, "Current cooling", inputs["current_kw"],
-                                                       D["current_cooling"], "cur_cool")
-            inputs["future_cooling"] = cooling_widget(st, "Future-ready cooling", inputs["future_kw"],
-                                                      D["future_cooling"], "fut_cool")
-        else:
-            st.markdown("**Greenfield design (one build)**")
-            plat = st.selectbox("GPU platform (workbook)", PLATFORM_CHOICES,
-                                PLATFORM_CHOICES.index(D["gf_platform"]), key="gf_platform",
-                                format_func=lambda n: n if n == "Custom" else
-                                f"{n} · {WB.PLATFORMS[n]['kw']} kW · {WB.PLATFORMS[n]['gpus']} GPUs/rack")
-            inputs["gf_platform"] = plat
-            if plat == "Custom":
-                c1, c2, c3 = st.columns(3)
-                inputs["gf_custom_kw"] = float(c1.number_input("kW/rack", 5.0, 800.0, D["gf_custom_kw"], step=5.0))
-                nb = WB.custom_basis(inputs["gf_custom_kw"])
-                inputs["gf_custom_gpus"] = int(c2.number_input("GPUs/rack", 1, 1000, int(round(nb["gpus"]))))
-                inputs["gf_custom_it_per_rack"] = c3.number_input(
-                    "IT $M/rack", 0.0, 100.0, round(nb["it_per_rack"] / 1e6, 2), step=0.1) * 1e6
-                kw = inputs["gf_custom_kw"]
-                st.caption(f"Custom basis interpolated on the workbook ladder ({nb['bracket']}).")
-            else:
-                kw = WB.PLATFORMS[plat]["kw"]
-            size_by = st.radio("Size the build by", ["IT MW", "Racks"], horizontal=True, key="gf_size_by")
-            inputs["gf_size_by"] = size_by
-            if size_by == "IT MW":
-                inputs["gf_it_mw"] = float(st.number_input("Campus IT MW (workbook B77 = 100)", 1.0, 5000.0,
-                                                           D["gf_it_mw"], step=5.0))
-            else:
-                inputs["gf_racks"] = int(st.number_input("Number of racks", 1, 50000, D["gf_racks"], step=10))
-            inputs["gf_cooling"] = cooling_widget(st, "Cooling (workbook basis at ≤45 kW: Air or RDHx)", kw,
-                                                  "Hybrid (rear-door + air)", "gf_cool")
-            inputs["gf_redundancy"] = st.selectbox("Redundancy (12_CHANGE_PRICING)", GF_REDUNDANCY, 0)
-            g1, g2 = st.columns(2)
-            inputs["gf_fuel_96h"] = g1.checkbox("Fuel 96 h (C10)", False)
-            inputs["gf_union_seismic_piles"] = g2.checkbox("Union / seismic D / piles (C11)", False)
-            g3, g4 = st.columns(2)
-            inputs["gf_it_fitout"] = g3.checkbox("IT fit-out ON (C14)", False, help="01_ASSUME8 r81, workbook default OFF")
-            inputs["gf_include_fabric"] = g4.checkbox("AI fabric in ROI", False, help="14_EIGHT_DEEP r47, excluded from facility $")
-            inputs["gf_contingency_pct"] = st.number_input(
-                "Contingency % (workbook 4%; 7-10% at 60% CD)", 0.0, 30.0, 4.0, step=0.5) / 100
-            g5, g6 = st.columns(2)
-            inputs["gf_land"] = g5.number_input("Land $M (r79)", 0.0, 2000.0, 5.0, step=0.5) * 1e6
-            inputs["gf_interconnect"] = g6.number_input("Utility-side IC $M (r78)", 0.0, 2000.0, 8.0, step=0.5) * 1e6
-            g7, g8 = st.columns(2)
-            inputs["gf_months_to_power"] = int(g7.number_input("Months to power (12-48)", 3, 96,
-                                                               ASSUMPTIONS["greenfield"]["months_to_power"]))
-            inputs["gf_construction_months"] = int(g8.number_input("Construction months", 6, 60,
-                                                                   ASSUMPTIONS["greenfield"]["construction_months"]))
-            g9, g10, g11 = st.columns(3)
-            inputs["gf_owner_costs_pct"] = g9.number_input("Owner costs %", 0.0, 30.0, 0.0, step=0.5,
-                                                           help="Owner staff, A/E, permits: excluded by the workbook") / 100
-            inputs["gf_escalation_pct"] = g10.number_input("Escalation %/yr", 0.0, 20.0, 0.0, step=0.5,
-                                                           help="Workbook is a 2026 basis") / 100
-            inputs["gf_property_tax_pct"] = g11.number_input("Property tax %", 0.0, 5.0, 0.0, step=0.1) / 100
+            inputs["current_gpus"] = int(c1.number_input("Current GPUs/rack", 0, 72, D["current_gpus"],
+                                                         help="GPUs in each of today's racks."))
+            inputs["current_gpu_price"] = float(c2.number_input("Current $/GPU-hr", 0.0, 20.0, D["current_gpu_price"],
+                                                                step=0.25, help="Rental rate for today's GPUs."))
+        st.markdown("**Revenue and operations**")
+        gp = float(st.number_input("GPU rental $/GPU-hr (0 = platform default)", 0.0, 60.0, 0.0, step=0.25,
+                                   help="Contract rate for the new GPUs. Defaults sit inside public market ranges."))
+        inputs["gpu_price"] = gp or None
+        inputs["utilization"] = st.slider("Utilization", 0.3, 1.0, D["utilization"], 0.05,
+                                          help="Share of hours the GPUs are sold.")
+        pc = float(st.number_input("Power price $/kWh (0 = location default)", 0.0, 0.5, 0.0, step=0.005,
+                                   format="%.3f", help="All-in electricity price."))
+        inputs["power_cost"] = pc or None
+        inputs["price_change"] = st.slider("GPU rental price change per year", -0.25, 0.05, D["price_change"], 0.01,
+                                           help="Rental prices usually fall as newer GPUs ship (assumption).")
+        inputs["years"] = int(st.slider("Analysis period (years)", 3, 20, D["years"],
+                                        help="Years of operation in NPV and payback."))
+        inputs["include_it"] = st.checkbox("Include GPU / IT hardware in ROI", True,
+                                           help="Adds GPU racks and the AI network to the investment.")
+        inputs["overhead_pct"] = st.slider("Cloud operations overhead (% of revenue)", 0.0, 0.4, D["overhead_pct"], 0.01,
+                                           help="Software, sales, network transit and support (assumption).")
+        st.markdown("**Cost and schedule**")
+        if gf:
+            inputs["contingency"] = st.slider("Contingency", 0.0, 0.25, D["contingency"], 0.01,
+                                              help="Design and pricing contingency at planning stage.")
+            inputs["owner_pct"] = st.slider("Owner costs", 0.0, 0.10, D["owner_pct"], 0.005,
+                                            help="Permits, owner's team, builder's risk insurance.")
+            land = float(st.number_input("Land $/acre (0 = location default)", 0.0, 50e6, 0.0, step=50_000.0,
+                                         help="Powered-land price. Indicative defaults by location."))
+            inputs["land_per_acre"] = land or None
+            inputs["months_to_power"] = int(st.number_input("Months to utility power", 6, 120, key="w_mtp",
+                                                            help="Utility's committed energization date."))
+            c1, c2 = st.columns(2)
+            inputs["design_months"] = int(c1.number_input("Design months", 2, 36, key="w_dm",
+                                                          help="Design and permits."))
+            inputs["construction_months"] = int(c2.number_input("Build months", 6, 60, key="w_cm",
+                                                                help="Construction duration."))
+        inputs["escalation"] = st.slider("Escalation per year", 0.0, 0.12, D["escalation"], 0.005,
+                                         help="Construction cost inflation to the mid-point of construction.")
+        st.markdown("**Engineering**")
+        c1, c2 = st.columns(2)
+        inputs["fuel_hours"] = float(c1.number_input("Fuel storage (hours)", 4.0, 168.0, D["fuel_hours"], step=4.0,
+                                                     help="On-site diesel at full load."))
+        inputs["battery_min"] = float(c2.number_input("UPS battery (minutes)", 1.0, 30.0, D["battery_min"], step=1.0,
+                                                      help="Ride-through until generators take the load."))
+        c1, c2 = st.columns(2)
+        inputs["voltage"] = float(c1.selectbox("Distribution voltage (V)", [415.0, 480.0], 0,
+                                               help="Low-voltage three-phase distribution to the racks."))
+        inputs["tcs_dT"] = float(c2.number_input("Liquid loop dT (K)", 5.0, 20.0, D["tcs_dT"], step=1.0,
+                                                 help="Supply-to-return rise in the rack liquid loop."))
+        st.markdown("**Future-proof horizon**")
+        fk = float(st.number_input("Target kW/rack (0 = horizon default)", 0.0, 2000.0, 0.0, step=10.0,
+                                   help="Override the horizon's target density."))
+        inputs["future_kw"] = fk or None
+        fy = int(st.number_input("Year the target racks arrive (0 = default)", 0, 20, 0,
+                                 help="Years after ready-for-service. Defaults: 3, 5 or 8 years."))
+        inputs["future_year"] = fy or None
+        inputs["future_probability"] = st.slider("Probability the target is deployed", 0.1, 1.0, 0.7, 0.05,
+                                                 help="Weights the later works (assumption).")
+        inputs["spare_utility_pct"] = st.slider("Spare utility capacity", 0.0, 1.0, 0.0, 0.05,
+                                                help="Extra MW to reserve for the future target.")
 
-        inputs["region"] = st.selectbox(
-            "Region (indicative location factor)", REGIONS, REGIONS.index(D["region"]),
-            format_func=lambda r: f"{r}  ({ASSUMPTIONS['regions'][r]:.2f})")
-        if not is_gf:
-            c3, c4 = st.columns(2)
-            inputs["tier"] = c3.selectbox("Tier", list(ASSUMPTIONS["tier"]), 1)
-            inputs["redundancy"] = c4.selectbox("Redundancy", list(ASSUMPTIONS["redundancy"]), 1)
-
-        st.markdown("**Operations**")
-        c5, c6 = st.columns(2)
-        inputs["power_cost"] = float(c5.number_input("Power $/kWh", 0.02, 0.40, D["power_cost"],
-                                                     step=0.005, format="%.3f"))
-        inputs["utilization"] = c6.slider("Utilization %", 30, 100, int(D["utilization"] * 100)) / 100
-        inputs["horizon_years"] = int(st.slider("Analysis horizon (years)", 3, 20, D["horizon_years"]))
-
-        st.markdown("**Revenue (GPU rental)**")
-        if not is_gf:
-            c7, c8 = st.columns(2)
-            inputs["gpus_per_rack_current"] = int(c7.number_input("GPUs/rack (current)", 0, 144, D["gpus_per_rack_current"]))
-            inputs["gpus_per_rack_future"] = int(c8.number_input("GPUs/rack (future)", 0, 144, D["gpus_per_rack_future"]))
-            c9, c10 = st.columns(2)
-            inputs["gpu_price_current"] = float(c9.number_input("$/GPU-hr (current)", 0.0, 20.0, D["gpu_price_current"], step=0.25))
-            inputs["gpu_price_future"] = float(c10.number_input("$/GPU-hr (future)", 0.0, 20.0, D["gpu_price_future"], step=0.25))
-        else:
-            p = float(st.number_input("$/GPU-hr (0 = indicative for platform)", 0.0, 50.0, 0.0, step=0.25))
-            inputs["gf_gpu_price"] = p or None
-        inputs["include_gpu_hw"] = st.checkbox(
-            "Include GPU / IT hardware in ROI" + (" (workbook IT $/rack)" if is_gf else ""), True)
-        st.form_submit_button("▶ Run cost model", type="primary", width="stretch")
-
-    with st.expander("🤖 AI settings (Nebius Token Factory)", expanded=False):
-        use_ai = st.toggle("Use LLM narrative", value=True)
-        base_url = st.text_input("Base URL", os.environ.get("NEBIUS_BASE_URL", DEFAULT_BASE_URL))
+    with st.expander("🤖 AI narrative settings", expanded=False):
+        use_ai = st.toggle("Use Nemotron narrative", value=True,
+                           help="NVIDIA Nemotron on Nebius Token Factory writes the narrative; numbers come from the model.")
+        base_url = st.text_input("Base URL", os.environ.get("NEBIUS_BASE_URL", DEFAULT_BASE_URL),
+                                 help="OpenAI-compatible endpoint.")
         model_choice = st.selectbox("Model", SUGGESTED_MODELS + ["Custom..."],
-                                    0 if os.environ.get("NEBIUS_MODEL") is None else len(SUGGESTED_MODELS))
-        model = (st.text_input("Custom model id", os.environ.get("NEBIUS_MODEL", DEFAULT_MODEL))
+                                    0 if os.environ.get("NEBIUS_MODEL") is None else len(SUGGESTED_MODELS),
+                                    help="Nemotron model id.")
+        model = (st.text_input("Custom model id", os.environ.get("NEBIUS_MODEL", DEFAULT_MODEL), help="Model id.")
                  if model_choice == "Custom..." else model_choice)
         secrets = get_secrets()
         env_or_secret = resolve_api_key(None, secrets)
@@ -196,33 +251,30 @@ with st.sidebar:
             sidebar_key = st.text_input("NEBIUS_API_KEY", type="password",
                                         help="Or set env NEBIUS_API_KEY / .streamlit/secrets.toml")
         api_key = resolve_api_key(sidebar_key, secrets)
-        regen = st.button("↻ Regenerate narrative", width="stretch")
+        regen = st.button("↻ Regenerate narrative", width="stretch", help="Ask the model again.")
 
 # ----------------------------------------------------------------- engine
-res = run_model(inputs)
-payload = summary_for_llm(res)
-UI = ui_greenfield if is_gf else ui_fitout
+try:
+    res = E.run_model(inputs)
+    payload = E.summary_for_llm(res)
+except Exception as e:  # clear error, never a stack trace
+    st.error(f"Could not compute this case: {type(e).__name__}: {e}. Check the inputs (size above zero, "
+             "density within 5-1,500 kW/rack) or reload a preset.")
+    st.stop()
 
-# ----------------------------------------------------------------- header
+h = R.headline(res)
 st.markdown("# ⚡ RackReady AI")
-st.markdown('<div class="rr-sub">Data Center Cost Modeling Agent for high-density AI racks. '
+st.markdown('<div class="rr-sub">Cost and design model for high-density AI data centers. '
             '<b>Built for Nebius x NVIDIA Build Week.</b></div>', unsafe_allow_html=True)
-if is_gf:
-    d = res["design"]
-    badges = ["🏗️ Greenfield new build", d["platform"], f"{d['kw_per_rack']:.0f} kW/rack",
-              f"{d['racks']:,.0f} racks", f"{d['it_mw']:.1f} MW IT", d["cooling"], inputs["region"],
-              inputs["gf_redundancy"]]
-else:
-    cur, fut = res["current"], res["future"]
-    badges = ["🏢 Existing-building fit-out", f"{inputs['racks']} racks",
-              f"{cur['kw_per_rack']:.0f} → {fut['kw_per_rack']:.0f} kW/rack", fut["cooling"],
-              inputs["region"], f"{inputs['tier']} · {inputs['redundancy']}"]
+badges = [("🏗️ Greenfield new build" if gf else "🏢 Existing building fit-out"), h["platform"],
+          f"{h['kw']:,.0f} kW/rack", f"{h['racks']:,} racks", f"{h['it_mw']:,.1f} MW IT", h["cooling"],
+          inputs["region"], E.RESILIENCE[inputs["resilience"]].split(" (")[0],
+          f"Horizon: {inputs['horizon']}"]
 st.markdown("".join(f'<span class="rr-badge">{b}</span>' for b in badges), unsafe_allow_html=True)
-st.caption("All figures are indicative planning numbers (2026 USD) for early-stage decisions, "
-           f"not a bid or estimate of record. {D2C_NOTE}.")
+st.caption(f"{E.DISCLAIMER} 2026 US dollars. {E.D2C_NOTE}.")
 for w in res["warnings"]:
     st.warning(w)
-UI.headline(res)
+V.summary(res)
 
 # ----------------------------------------------------------------- narrative (cached per input)
 key_fp = hashlib.sha1((api_key or "").encode()).hexdigest()[:8]
@@ -250,17 +302,17 @@ def render_narrative():
             if not text or not str(text).strip():
                 raise LLMError("The model returned an empty response.")
             text = str(text).replace("\\$", "$")
-            src = f"AI narrative · {model} via {base_url}"
+            src = f"AI narrative · {model} via Nebius Token Factory"
             st.caption(src)
         except LLMError as e:
             st.warning(f"{e} Showing the built-in rule-based narrative instead.")
             text = None
         except Exception as e:  # never break the demo
-            st.warning(f"LLM error ({type(e).__name__}). Showing the built-in narrative instead.")
+            st.warning(f"AI narrative unavailable ({type(e).__name__}). Showing the built-in narrative instead.")
             text = None
     elif use_ai:
-        st.warning("No NEBIUS_API_KEY found. Showing the built-in rule-based narrative. "
-                   "Add a key in 🤖 AI settings for the Nemotron narrative.")
+        st.info("No NEBIUS_API_KEY found, so this is the built-in rule-based narrative. "
+                "Add a key under 🤖 AI narrative settings for the Nemotron narrative.")
     if text is None:
         text = fallback_narrative(res)
         src = "Rule-based narrative (offline fallback)"
@@ -269,54 +321,66 @@ def render_narrative():
     cache[key_hash] = (src, text)
 
 
-T = UI.render(res, inputs, render_narrative)
+with st.expander("📝 Narrative: what this means", expanded=False):
+    render_narrative()
 narrative_src, narrative = cache.get(key_hash, ("", ""))
 
-# ----------------------------------------------------------------- export
-report_md = "\n\n".join([
-    f"# RackReady AI report: {inputs['project_name']}",
-    f"_Generated {date.today().isoformat()} · Built for Nebius x NVIDIA Build Week · "
-    "Indicative planning figures, not a bid._",
-    *UI.report_parts(res, inputs, T),
-    f"_{narrative_src}_", narrative or "",
-])
+# ----------------------------------------------------------------- exports
+try:
+    pdf_bytes = R.pdf_report(res)
+    pdf_err = None
+except Exception as e:  # pragma: no cover
+    pdf_bytes, pdf_err = b"", f"{type(e).__name__}: {e}"
+report_md = R.markdown_report(res, narrative, narrative_src)
 zbuf = io.BytesIO()
 with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
-    for name, df in UI.csv_tables(T).items():
+    for name, df in R.all_tables(res).items():
         z.writestr(f"{name}.csv", df.to_csv(index=False))
+d1, d2, d3 = st.columns(3)
+if pdf_bytes:
+    d1.download_button("⬇ One-page PDF", pdf_bytes, file_name="rackready_summary.pdf", mime="application/pdf",
+                       width="stretch", help="Summary, costs, future-ready paths and key design calculations.")
+else:
+    d1.error(f"PDF export failed ({pdf_err}). Use the Markdown report.")
+d2.download_button("⬇ Full report (Markdown)", report_md, file_name="rackready_report.md", mime="text/markdown",
+                   width="stretch", help="Everything, including every design calculation step.")
+d3.download_button("⬇ Tables (CSV zip)", zbuf.getvalue(), file_name="rackready_tables.zip", mime="application/zip",
+                   width="stretch", help="All tables for Excel.")
 
-st.markdown("---")
-d1, d2, _ = st.columns([1, 1, 2])
-d1.download_button("⬇ Report (Markdown)", report_md, file_name="rackready_report.md",
-                   mime="text/markdown", width="stretch")
-d2.download_button("⬇ Tables (CSV zip)", zbuf.getvalue(), file_name="rackready_tables.zip",
-                   mime="application/zip", width="stretch")
+# ----------------------------------------------------------------- tabs
+tabs = st.tabs(["💰 Costs", "🔮 Future-ready", "📐 Design calculations", "📈 Operations & ROI",
+                "🗓️ Schedule & risks", "📚 Assumptions & sources"])
+with tabs[0]:
+    V.tab_costs(res)
+with tabs[1]:
+    V.tab_future(res)
+with tabs[2]:
+    V.tab_design(res)
+with tabs[3]:
+    V.tab_ops(res)
+with tabs[4]:
+    V.tab_schedule(res)
+with tabs[5]:
+    V.tab_assumptions(res)
 
-with st.expander("📘 How it works: the domain in plain language"):
+with st.expander("📘 How it works"):
     st.markdown("""
-**Two project types.** *Existing building fit-out* compares a current build (e.g. 15 kW/rack air)
-with a future-ready build (e.g. 140 kW/rack liquid) in the same hall, plus a build-current-then-retrofit
-path. *Greenfield* is ONE new build from scratch: pick a GPU platform from your cost workbook
-(H100 ... Kyber) or a custom density, size it by IT MW or racks, and the app prices it from the workbook:
-RIGHT facility $/IT MW × IT MW, split into 22 CSI divisions, N+1 quantities (gens, UPS, CDUs, taps),
-change pricing for N+2 / 2N / 96 h fuel / union-seismic-piles / contingency, then adds what the workbook
-keeps outside facility $: land, utility-side interconnect, IT iron and AI fabric. A reconciliation table
-ties the result back to the workbook's own totals.
+**Two project types.** *Greenfield* is one new campus built from scratch: pick a GPU platform, size it in MW or
+racks, and the model designs and prices it. *Existing building fit-out* compares keeping today's racks with a
+future-ready fit-out in the same hall, and with retrofitting later.
 
-**D2C above 45 kW/rack.** Air tops out near 30 kW/rack and rear-door heat exchangers near 45 kW. Above
-45 kW/rack every design uses **direct-to-chip (D2C) liquid**: cold plates fed by CDUs (N+1, on UPS)
-through a technology cooling loop, with dry/adiabatic heat rejection and a small residual-air share.
-The app sets this automatically.
+**Design first, then cost.** The model sizes the utility service, transformers, generators, UPS, busway,
+cooling, CDUs, coolant flows, floor loading, water and land with standard engineering formulas (see Design
+calculations), then prices the build from a per-MW cost basis for the platform, adjusted for redundancy,
+contingency, location, owner costs and escalation.
 
-**CSI divisions.** Div 03/05/07 concrete, steel, envelope; Div 21 fire; Div 22 plumbing & fuel; Div 23
-HVAC/liquid; Div 26 electrical (HV yard, gens, UPS, busway); Div 27 comms; Div 31-33 site.
+**Direct-to-chip liquid above 45 kW/rack.** Air tops out near 30 kW/rack and rear-door coolers near 45 kW.
+Above 45 kW/rack every design uses direct-to-chip liquid cooling, set automatically.
 
-**Long-lead equipment.** Transformers (the workbook's "90-week transformer"), MV switchgear and
-generators set the schedule more than construction does. Never present land without months-to-power.
+**Future-proof horizon.** Choose 5, 10 or 15 years (Vera Rubin, Kyber, 1 MW-class racks). The model prices
+retrofit later vs provisions now vs full future build on day one and recommends the lowest present cost.
 
-**How the AI is used.** The deterministic engine computes every number. The JSON goes to an NVIDIA
-Nemotron model on Nebius Token Factory, prompted as a senior data center cost manager, which writes the
-narrative without changing totals. No key? A rule-based narrative keeps the demo running.
+**AI.** Every number comes from the deterministic model. NVIDIA Nemotron on Nebius Token Factory writes the
+narrative from the model's output; without a key a rule-based narrative is shown.
 """)
-
-st.caption("RackReady AI · Built for Nebius x NVIDIA Build Week · Indicative planning model.")
+st.caption("RackReady AI · Built for Nebius x NVIDIA Build Week · " + E.DISCLAIMER)

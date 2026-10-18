@@ -17,48 +17,43 @@ SUGGESTED_MODELS = [
     "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
 ]
 
-SYSTEM_PROMPT = """You are RackReady AI, a senior data center cost manager and estimator with 20+ years
-on hyperscale and AI/HPC projects. You write for owners, developers and general contractors.
+SYSTEM_PROMPT = """You are RackReady AI, a senior data center cost manager and MEP estimator with 20+ years on
+hyperscale and AI/HPC projects. You write for owners, developers and general contractors in plain language.
+
+You receive the JSON output of a deterministic cost and design engine. Never change, recompute or invent
+numbers: quote them from the JSON (in $M or $B, MW, kW/rack, months). If something is not in the JSON, say it
+needs confirming. Every figure is an indicative planning estimate, not a bid.
 
 Domain you apply:
-- High-density AI racks: today's 10-20 kW air-cooled racks versus 40-140+ kW GPU racks
-  (GB200/GB300 NVL72 class at ~120-140 kW). Air cooling tops out near 30 kW/rack; rear-door
-  heat exchangers (RDHx) extend to ~45 kW; above that you need direct-to-chip (D2C) liquid with
-  CDUs, a technology cooling system (TCS) secondary loop, rack manifolds and warm-water heat
-  rejection (dry/adiabatic coolers) with trim chillers.
-- Power distribution: MV service, transformers, switchgear, UPS, generators, overhead
-  high-amp busway with tap-off boxes versus whips from PDUs/RPPs, 415/240 V distribution.
-- CSI MasterFormat: Div 03/05/09 (concrete, steel, finishes, incl. slab loading for
-  3,000-4,000+ lb liquid-cooled racks), Div 21 fire suppression, Div 23 HVAC/mechanical,
-  Div 26 electrical, Div 27 communications.
-- Uptime Institute Tier II/III/IV and N, N+1, 2N redundancy and their cost effect.
-- Long-lead equipment: transformers (80-130 weeks), MV switchgear, generators, UPS, chillers,
-  CDUs, busway. Procurement strategy, early release packages, reservation agreements.
-- Construction phases: design (SD/DD/CD), procurement, shell & core, MEP fit-out,
-  commissioning Levels 1-5 (L1 factory witness test through L5 integrated systems test).
-- PUE, energy cost, maintenance, and GPU-as-a-service revenue economics.
-- Rule used by the engine: above 45 kW/rack the cooling is always direct-to-chip (D2C) liquid
-  (cold plates, L2L CDUs N+1 on UPS, TCS loop, dry/adiabatic hybrid reject, residual air share).
-- Greenfield (new build from scratch) is priced from the owner's cost workbook "AI Rack Research -
-  The Right Estimate" (8 platforms H100 ... Kyber): RIGHT facility $/IT MW = average of Method A
-  bottoms-up and Method B mix mid, LOW/HIGH band, 22-division CSI mix, N+1 block redundancy, GC 9% +
-  BIM/CxA + 4% contingency inside the number, change pricing (N+2, 2N, 96 h fuel, union/seismic/piles,
-  contingency) as machines x unit + 13% soft on the delta. Facility $ excludes IT racks, AI fabric,
-  land, utility-side interconnect, owner staff, financing, tax and escalation past 2026; those sit
-  on adders. Never present land without months-to-power.
+- Rack density: air cooling tops out near 30 kW/rack, rear-door heat exchangers near 45 kW/rack. Above
+  45 kW/rack the engine always uses direct-to-chip (D2C) liquid cooling: cold plates, CDUs, a technology
+  cooling loop, warm-water dry/adiabatic heat rejection, and a residual air share (liquid captures about
+  85-95%, never 100%). Immersion is a niche option and is not modelled.
+- NVIDIA roadmap: GB200/GB300 NVL72 about 120-140 kW/rack (shipping); Vera Rubin NVL144 about 190-230 kW
+  (announced, 2H 2026); Rubin Ultra NVL576 "Kyber" about 600 kW with 800 VDC power (announced, 2H 2027);
+  1 MW-class racks are speculative. Say "announced" or "estimate" when you use roadmap values.
+- Power: utility service in MVA (power factor), main transformers, unit substations, switchgear, UPS with
+  short battery ride-through, standby generators (N, N+1, N+2, 2N) and fuel storage, row busway sized by
+  I = P / (sqrt3 x V x PF). PUE is an annual energy ratio, not a peak multiplier.
+- Long-lead equipment drives the schedule: power transformers about 128 weeks, generators about 78-104
+  weeks; utility interconnection often takes years. Recommend early procurement and reservation deals.
+- Uptime-style resilience wording (Tier II/III/IV-style); do not claim certification.
 
-If "project_type" starts with "Greenfield" there is ONE design and NO current-vs-future case: do not
-mention a current build or a retrofit. Explain the platform and density, the CSI split, the
-reconciliation to the workbook (facility $ vs RIGHT, band check), the adders, OpEx, payback, and the
-schedule/critical path. Name the section "## Design & scope recommendation" instead of
-"## Upgrade path recommendation". Cover greenfield risks: interconnection queue and months-to-power,
-long-lead transformers/switchgear/generators, module freeze, CDU MW ladder, contingency at 4% vs 7-10%,
-site/geotech, permitting.
+Rules:
+- If project_type starts with "Greenfield" there is ONE new build: never mention a current build or a
+  retrofit of it. Name section 3 "## Design & future-ready recommendation".
+- For an existing building fit-out, compare the current racks with the future-ready fit-out and the
+  retrofit-later option. Name section 3 "## Upgrade path recommendation".
+- When future_ready / future_proof_horizon is present, explain the three paths (retrofit later,
+  provisions now, full future build) and why the engine's lowest present cost wins; list the key provisions.
+- Use design_calculations to state the key engineering quantities (MVA, generators, UPS, tons, CDUs, flow,
+  floor loading, PUE, water).
+- Mention any benchmark check outside its range and every warning.
 
-Write exactly these sections:
+Write exactly these sections, concise (about 450-650 words in total):
 ## Executive summary
 ## Assumptions commentary
-## Upgrade path recommendation   (greenfield: ## Design & scope recommendation)
+## Upgrade path recommendation   (greenfield: ## Design & future-ready recommendation)
 ## Key risks
 ## Recommendations & next steps
 """
@@ -185,160 +180,76 @@ def complete_narrative(payload: dict, api_key: str, base_url: str = DEFAULT_BASE
 
 
 def fallback_narrative(res: dict) -> str:
-    """Rule-based narrative built only from engine numbers. Used with no key or on error."""
-    if res.get("mode") == "greenfield":
-        return _fallback_greenfield(res)
-    return _fallback_fitout(res)
+    """Rule-based narrative from the same engine output (used when no LLM is available)."""
+    import report as R
 
-
-def _fallback_greenfield(res: dict) -> str:
-    i, d = res["inputs"], res["design"]
-    b, q, s = d["basis"], d["quantities"], d["schedule"]
-    land = sum(v for k, v in d["adders"].items() if k.startswith("Land"))
-    ic = sum(v for k, v in d["adders"].items() if "interconnect" in k)
-    top = sorted(d["csi"].items(), key=lambda kv: -kv[1])[:3]
-    lines = [
-        "## Executive summary",
-        f"- **{i['project_name']}**: one **greenfield new build from scratch** in **{i['region']}**, "
-        f"**{d['platform']}** at {d['kw_per_rack']:.0f} kW/rack, {d['racks']:,.0f} racks, "
-        f"{d['it_mw']:.1f} MW IT, {d['cooling']}"
-        + (" (D2C auto-selected above 45 kW/rack)." if d["cooling_auto"] else "."),
-        f"- Facility cost **{_fmt_m(d['facility'])}** = **{_fmt_m(d['facility_per_mw'])}/MW IT** against the "
-        f"workbook RIGHT {_fmt_m(b['right'])}/MW (band {_fmt_m(b['low'])} to {_fmt_m(b['high'])}): "
-        f"**{d['band_check']}**.",
-        f"- Total greenfield CapEx **{_fmt_m(d['capex'])}** including land {_fmt_m(land)} and utility-side "
-        f"interconnect {_fmt_m(ic)}. IT iron adds {_fmt_m(d['it_hw'])} outside facility $.",
-        f"- Annual OpEx {_fmt_m(d['opex'])}, revenue {_fmt_m(d['revenue'])} at ${d['gpu_price']:.2f}/GPU-hr, "
-        f"simple payback **{d['simple_payback']:.1f} yrs**." if d["simple_payback"] else
-        f"- Annual OpEx {_fmt_m(d['opex'])}; the design does not pay back at these revenue inputs.",
-        "- All figures are indicative planning numbers, not a bid.",
-        "",
-        "## Assumptions commentary",
-        f"- Basis is the owner's workbook: RIGHT $/IT MW = average of Method A bottoms-up and Method B mix "
-        f"mid, N+1 block-redundant, GC {b['gc_pct']:.0%} + BIM/CxA + {b['cont_pct']:.0%} contingency inside.",
-        f"- Largest CSI divisions: " + ", ".join(f"{k} {_fmt_m(v)}" for k, v in top) + ".",
-        f"- Quantities: {q['standby_mw']:.0f} MW running plant (IT x PUE {d['pue']:.2f}), "
-        f"{q['gens_n1']} x 3 MW generators (N+1), {q['ups_n1']} x 1 MW UPS modules, {q['cdus']} CDUs, "
-        f"{d['gsf']:,.0f} gsf.",
-    ]
-    if d["changes"]:
-        lines.append("- Changes priced as machines x unit with 13% soft on the delta: "
-                     + "; ".join(f"{n} {_fmt_m(w)}" for n, _, w in d["changes"]) + ".")
-    lines += [
-        "",
-        "## Design & scope recommendation",
-        f"- Price the hall you will pour: this is a {d['platform']} column, not a blended $/MW.",
-        "- Keep IT iron, AI fabric, land and the utility-side interconnect on their own rows; they are "
-        "outside facility $ in the workbook.",
-        "- Hold N+1 block redundancy unless the tenant writes 2N; price N+2 or 2N with the change sheet.",
-        "",
-        "## Key risks",
-        f"- **Power**: ~{s['months_to_power']} months to utility power assumed (workbook range 12-48); "
-        "interconnect is excluded from facility $ and live studies often run $2-20M+.",
-        f"- **Schedule**: ~{s['months_to_rfs']:.0f} months to ready-for-service; critical path is "
-        f"**{s['critical_path']}**.",
-        f"- **Long-lead gear**: a {90}-week transformer cannot be crashed; switchgear and generators 52-80 weeks.",
-        f"- **Module freeze**: {b['module']}; wrong-gen module means a missed slot.",
-        f"- **CDU MW ladder** and **contingency at {b['cont_pct']:.0%}** (7-10% at 60% CD) are the first "
-        "numbers to attack.",
-        "- **Site & permits**: rock, piles, haul road, zoning and generator air permits.",
-    ]
-    for w in res["warnings"]:
-        lines.append(f"- **Design check**: {w}")
-    lines += [
-        "",
-        "## Recommendations & next steps",
-        "- File the interconnection request for the full MW and reserve transformer / switchgear / generator slots.",
-        "- Freeze the platform ICD before rebar and module orders.",
-        "- Replace the Method A anchors with a BOM and bid units; keep this register and structure.",
-        "- Run geotech borings before closing on land.",
-        "",
-        "_Narrative generated by the built-in rule engine (no LLM)._",
-    ]
-    return "\n".join(lines)
-
-
-def _fallback_fitout(res: dict) -> str:
-    i, c, f, u = res["inputs"], res["current"], res["future"], res["upgrade"]
-    best = u["recommended"]
-    def cl(x):
-        return x["cooling"] + (" (auto-selected above 45 kW/rack)" if x["cooling_auto"] else "")
-    lines = [
-        "## Executive summary",
-        f"- **{i['project_name']}** in **{i['region']}**, {i['tier']}, {i['redundancy']} redundancy, "
-        f"{i['racks']} racks, **fit-out of an existing building**.",
-        f"- **Current build** ({c['kw_per_rack']:.0f} kW/rack, {cl(c)}): {c['it_mw']:.1f} MW IT, "
-        f"CapEx **{_fmt_m(c['capex'])}** ({_fmt_m(c['capex_per_mw'])}/MW IT).",
-        f"- **Future-ready build** ({f['kw_per_rack']:.0f} kW/rack, {cl(f)}): {f['it_mw']:.1f} MW IT, "
-        f"CapEx **{_fmt_m(f['capex'])}** ({_fmt_m(f['capex_per_mw'])}/MW IT).",
-        f"- Building current now and retrofitting in year {u['retrofit_year']} costs "
-        f"**{_fmt_m(u['path_b_total_with_downtime'])}** including downtime, versus "
-        f"**{_fmt_m(u['path_a_capex'])}** to build future-ready on day one "
-        f"(penalty {_fmt_m(u['retrofit_penalty'])}).",
-        f"- Engine recommendation: **{best}**. All figures are indicative planning numbers, not a bid.",
-        "",
-        "## Assumptions commentary",
-        f"- Unit rates are $/kW of IT for Div 26 and Div 23, with per-rack items for Div 27, liquid "
-        f"manifolds/TCS and heavy-rack slab work, scaled by a location factor of "
-        f"{res_region_factor(res):.2f} and {i['tier']} / {i['redundancy']} multipliers.",
-        f"- Above 45 kW/rack the engine always uses D2C liquid: {f['cdus']} CDUs (1.6 MW skids, N+1, "
-        "workbook rule) feed the racks.",
-        f"- Design PUE {c['pue']:.2f} (current) vs {f['pue']:.2f} (future-ready). At "
-        f"${i['power_cost']:.3f}/kWh and {i['utilization']*100:.0f}% utilization, the future-ready "
-        f"design saves about **{_fmt_m(f['pue_saving_vs_air'])}/yr** in energy versus an air-cooled PUE.",
-        f"- Soft costs and contingency are included; GPU hardware is "
-        f"{'included' if i.get('include_gpu_hw', True) else 'excluded'} in ROI.",
-        "",
-        "## Upgrade path recommendation",
-    ]
-    if best.startswith("Build future-ready"):
-        lines += [
-            f"- Build future-ready now. A retrofit means live-site work (premium "
-            f"{(res_retro_premium()-1)*100:.0f}%), demolition of air-side systems, "
-            f"~{u['downtime_months']} months of lost revenue ({_fmt_m(u['downtime_cost'])}), and "
-            f"re-procuring long-lead gear mid-life.",
-            "- If capital is constrained, pre-invest in the items that are hardest to retrofit: "
-            "slab capacity, MV service and transformer sizing, busway pathways, and CDU/TCS "
-            "piping stubs. Defer CDUs and rack manifolds until tenants commit.",
-        ]
+    i = res["inputs"]
+    h = R.headline(res)
+    v = R.main_design(res)["v"]
+    f = R.horizon(res)
+    rec = res["recommendation"]
+    gf = res["mode"] == "greenfield"
+    out = ["## Executive summary"]
+    if gf:
+        out.append(f"{i['project_name']} is a single new build in {i['region']}: {h['racks']:,} {h['platform']} racks at "
+                   f"{h['kw']:,.0f} kW/rack, {h['it_mw']:,.1f} MW of IT load, cooled by {h['cooling']}. The indicative "
+                   f"project cost is {R.money(h['total'])} ({R.money(h['per_mw'])} per MW IT, including land, utility "
+                   f"interconnection, owner costs and escalation). GPU and network hardware add {R.money(h['it_total'])}. "
+                   f"Payback including IT is {'about %.1f years' % h['payback'] if h['payback'] is not None else 'not reached in the period'} "
+                   f"from ready-for-service, expected in about {h['rfs']:.0f} months.")
     else:
-        lines += [
-            "- Build current now and retrofit later. The day-one premium is not justified by the "
-            "revenue uplift at these inputs.",
-            "- Still protect the option: size slab, MV service and pathways for D2C liquid cooling.",
-        ]
-    lines += [
-        "",
-        "## Key risks",
-        "- **Long-lead equipment**: transformers 80-130 weeks, switchgear and generators 52-80 weeks. "
-        "Schedule is set by procurement, not construction.",
-        f"- **Power availability**: the utility service for {f['facility_mw']:.0f} MW facility load may "
-        "take longer than the build.",
-        "- **Liquid cooling maturity**: CDU, TCS water quality, leak detection and commissioning "
-        "(L1-L5) scope is new to many trades.",
-        "- **Structural**: 140 kW liquid racks can weigh 3,000-4,000+ lb; confirm slab design early.",
-        "- **GPU market**: rental rates and utilization drive ROI more than construction cost.",
-    ]
-    for w in res["warnings"]:
-        lines.append(f"- **Design check**: {w}")
-    lines += [
-        "",
-        "## Recommendations & next steps",
-        "- Release early procurement packages for transformers, switchgear and generators.",
-        "- Lock the D2C basis of design (CDU in-row vs facility, supply water temperature).",
-        "- Run a Class 4 estimate with vendor budgetary quotes to replace these planning rates.",
-        "- Plan integrated systems testing (L5) with load banks for liquid loops.",
-        "",
-        "_Narrative generated by the built-in rule engine (no LLM)._",
-    ]
-    return "\n".join(lines)
+        cur, fu, up = res["current"], res["future"], res["upgrade"]
+        out.append(f"{i['project_name']}: {cur['racks']:,} racks today at {cur['kw']:.0f} kW/rack ({cur['cooling']}) vs a "
+                   f"future-ready fit-out for {h['platform']} at {fu['kw']:.0f} kW/rack ({fu['cooling']}). The future-ready "
+                   f"fit-out costs {R.money(fu['capex'])} vs {R.money(cur['capex'])} for the current design; building current "
+                   f"now and retrofitting in year {up['year']} costs {R.money(up['path_b_total'])} including "
+                   f"{up['downtime_months']} months of downtime.")
+    out.append(f"**Recommendation:** {rec['headline']}. {rec['detail']}")
+    out.append("## Assumptions commentary")
+    out.append(f"Key design: {R.key_design_line(res)}. Facility peak demand is {v['fac_peak_kw'] / 1000:,.1f} MW "
+               f"from a component load model (IT, UPS losses, design-day cooling, house load); annual PUE "
+               f"{v['pue']:.2f} is an energy ratio. Resilience is {E_RES(i)}. Power is priced at "
+               f"${(res['design'] if gf else res['future'])['power_cost']:.3f}/kWh and GPU rental at "
+               f"${(res['design'] if gf else res['future'])['gpu_price']:.2f}/GPU-hr with {i['utilization']:.0%} "
+               "utilization; rental prices are assumed to fall 8%/yr between hardware refreshes (assumption).")
+    bad = [c for c in res["checks"] if not c["ok"]]
+    out.append("All benchmark checks are within their public ranges." if not bad else
+               "Outside benchmark range: " + "; ".join(f"{c['check']} = {c['value']:,.2f}" for c in bad) + ".")
+    out.append("## Design & future-ready recommendation" if gf else "## Upgrade path recommendation")
+    if not gf:
+        up = res["upgrade"]
+        out.append(f"Fit out future-ready now: NPV {R.money(up['npv_a'])}. Keep current and retrofit later: NPV "
+                   f"{R.money(up['npv_b'])}. Engine recommendation: **{up['recommended']}**.")
+    if f.get("active"):
+        best = next(x for x in f["paths"] if x["path"] == f["best"])
+        out.append(f"Future-proof horizon {f['horizon']}: {f['horizon_text']} The target ({f['target_kw']:,.0f} kW/rack "
+                   f"in year {f['year']}) is priced three ways. " + " ".join(
+                       f"{x['path']}: {R.money(x['pv_total'])} present cost." for x in f["paths"]) +
+                   f" Lowest: **{best['path']}**.")
+        out.append("Provisions to include: " + "; ".join(p["provision"] + " (" + p["when"][0].lower() + p["when"][1:] + ")"
+                                                         for p in f["provisions"]) + ".")
+    else:
+        out.append(f.get("reason", ""))
+    out.append("## Key risks")
+    risks = [f"Utility power and interconnection timing (critical path: "
+             f"{(res['design']['schedule'] if gf else res['schedule'])['critical_path']}).",
+             "Long-lead power transformers (about 128 weeks) and generators (78-104 weeks): order early.",
+             "Roadmap uncertainty: announced rack densities, weights and prices can change before delivery.",
+             f"Floor loading: about {v['rack_psf']:,.0f} psf on the rack footprint; confirm slab design.",
+             "Liquid cooling commissioning and water quality for the technology cooling loop."]
+    out.append("\n".join([f"- {r}" for r in risks] + [f"- {w}" for w in res["warnings"]]))
+    out.append("## Recommendations & next steps")
+    out.append("\n".join(["- Confirm firm MW and the energization date with the utility; secure transformer and generator slots.",
+            "- Freeze the rack platform and density; get the OEM rack power, weight and coolant specs in writing.",
+            "- Carry the future-ready provisions into the basis of design and the site layout.",
+            "- Replace these planning rates with a quantity-based estimate at concept design.",
+            "- " + DISCLAIMER_TEXT]))
+    return "\n\n".join(out)
 
 
-def res_region_factor(res: dict) -> float:
-    from engine import ASSUMPTIONS
-    return ASSUMPTIONS["regions"][res["inputs"]["region"]]
+DISCLAIMER_TEXT = "All figures are an indicative planning estimate, not a bid."
 
 
-def res_retro_premium() -> float:
-    from engine import ASSUMPTIONS
-    return ASSUMPTIONS["retrofit_premium"]
+def E_RES(i):
+    import engine as E
+    return E.RESILIENCE.get(i.get("resilience"), i.get("resilience"))

@@ -1,79 +1,46 @@
-# Sample inputs & demo script
+# Sample inputs and demo script
 
-All numbers below come from the built-in engine at default `ASSUMPTIONS` (indicative, 2026 USD).
+All numbers come from the built-in model at default settings (indicative planning estimate, not a bid; 2026 USD).
+Choose a preset in the sidebar, then change any input; results update automatically.
 
-## Scenario 1 (default): 200-rack AI hall, Northern Virginia
-These are the app defaults, so you only need to click **Run cost model**.
-
+## Preset 1 (default): 100 MW AI campus, greenfield, GB300 NVL72
 | Input | Value |
 |---|---|
-| Racks | 200 |
-| Current kW/rack → future | 15 → 140 |
-| Cooling current → future | Air → D2C liquid (auto-selected above 45 kW/rack) |
-| Region | US - Northern Virginia (1.00) |
-| Power cost | $0.08/kWh |
-| Utilization | 80% |
-| Tier / redundancy | Tier III / N+1 |
-| GPUs/rack, $/GPU-hr (current) | 8 at $2.50 (HGX H100-class) |
-| GPUs/rack, $/GPU-hr (future) | 72 at $3.50 (GB200/GB300 NVL72-class) |
-| Horizon | 10 years |
+| Project type / size | Greenfield, 100 MW IT |
+| GPU platform | NVIDIA GB300 NVL72 (135 kW/rack, 155 kW peak, 72 GPUs) |
+| Location / redundancy | US - Northern Virginia / N+1 |
+| Future-proof horizon | 10 years (600 kW/rack, Kyber class, year 5) |
 
-Expected headline: CapEx **$37.6M → $350.2M** (3 MW → 28 MW IT), **$12.5M → $12.5M per MW**,
-future annual OpEx **$31.0M**, payback **3.7 → 3.6 yrs**, 19 CDUs (N+1, 1.6 MW). Build-current-then-retrofit
-costs about **$500.7M** including downtime, so the engine recommends **future-ready on day one**.
+Expected: **741 racks**, D2C liquid (auto, above 45 kW/rack), PUE **1.20**, utility **156 MVA**, **50** x 3 MW
+generators, **129** x 1 MW UPS modules, **30,024 tons**, **67 CDUs**, liquid flow **2,252 L/s**, 260,000 sf on 26.2 acres.
+Total project cost **$2.28B** (**$22.8M/MW** including land, interconnection, owner costs and escalation; facility
+construction $19.8M/MW), IT hardware **$3.46B**, payback **3.1 years**, ready for service in about **42 months**
+(utility power is the critical path). Future-ready paths (present cost): retrofit later $1,233M, **provisions now
+$1,016M** (recommended), full future build $1,244M.
 
-## Scenario 2: mid-density colo upgrade, Dallas
-Racks 100 · 12 → 80 kW · Air → D2C liquid (auto) · US - Dallas / Texas · $0.06/kWh · 70% ·
-Tier III N+1 · GPUs 8 at $2.25 → 32 at $3.00.
-Expected: CapEx $14.7M → $96.4M ($12.3M → $12.1M/MW), future payback ≈ 5.3 yrs, retrofit path ≈ $141.0M.
+## Preset 2: 10 MW edge AI hall, greenfield, H200 HGX, Dallas
+42 kW/rack, so you can choose the cooling: rear-door hybrid. 239 racks, PUE **1.35**, WUE **2.28 L/kWh** (towers),
+18 MVA, 6 generators, 3,002 tons. Total **$181.3M** (**$18.1M/MW**), IT **$340.7M**, payback **6.7 years**.
+5-year horizon (230 kW): provisions now **$44M** vs retrofit later $65M vs full build $49M.
 
-## Scenario 3: premium Tier IV 2N, Singapore
-Racks 200 · 20 → 140 kW · Air → D2C liquid (auto) · Singapore (1.15) · $0.18/kWh · 85% ·
-Tier IV · 2N. Expected: CapEx $75.8M → $570.0M ($19.0M → $20.4M/MW), future OpEx ≈ $63.4M/yr,
-payback 6.8 → 4.4 yrs. This shows how tier, redundancy and location stack up.
+## Preset 3: existing-hall fit-out, 200 racks, 15 kW air to GB300 NVL72
+Current fit-out **$39.0M** (3 MW IT) vs future-ready **$352.1M** (27 MW IT, **$13.0M/MW**, D2C auto). Building current
+now and retrofitting in year 3 costs **$556.8M** including 4 months of downtime, so the model recommends **fit out
+future-ready now** (NPV $1.63B vs $0.62B). The utility service upgrade (transformers about 128 weeks) sets the
+schedule at about 32 months.
 
-## Scenario 4: greenfield, one new build from scratch (workbook-calibrated)
-Select **Project type → Greenfield: new build from scratch**. There is no "current" case: you price
-one design. Defaults: platform **GB300 NVL72** (the workbook's 2026 GMP reference), size by **100 MW IT**
-(workbook campus), N+1, contingency 4%, land $5M and utility-side interconnect $8M (workbook screens),
-24 months to power, NoVA 1.00.
-
-Expected: 741 racks × 135 kW, 53,333 GPUs, **D2C auto-selected**, 41 × 3 MW gens, 110 UPS modules,
-64 CDUs, 260,000 gsf. Facility **$1,916.3M = $19.2M/MW IT = workbook RIGHT (IN BAND)**; greenfield
-CapEx **$1,929.3M** with land + interconnect; ALL-IN with IT iron **$4,892.2M = 03_SIDE8 r16**.
-OpEx $119.5M/yr, payback **3.3 yrs**, ~30 months to ready-for-service (power-real + 6 months).
-
-| Try | Expected |
-|---|---|
-| Platform H100 HGX (41 kW, RDHx / air) | Facility $1,700.0M ($17.0M/MW), 2,439 racks, payback 3.5 yrs |
-| Platform Vera Rubin (220 kW) | Facility $2,163.1M ($21.6M/MW), 455 racks, payback 4.1 yrs |
-| Size by racks = 200 (GB300) | 27 MW IT, facility $517.4M, CapEx $530.4M |
-| Redundancy 2N gens + 2N UPS, contingency 8% | +$200.5M (C2) +$73.2M (C3) +$67.8M (C12) → CapEx $2,270.9M |
-| Custom 40 kW vs 50 kW | 40 kW keeps your cooling choice; 50 kW locks to D2C |
-
-## "Gotcha" check (good for Q&A)
-Set current kW/rack to **50**: the cooling selector locks to **D2C** ("D2C auto-selected above 45
-kW/rack"). Set it to **40** with **Air**: the app warns that air tops out around 30 kW/rack.
-
-## Suggested prompt (what the agent sends Nemotron)
-The app sends the engine's JSON with a system prompt casting the model as a senior data center
-cost manager. If you want to try it by hand in the Nebius playground:
-> "Using only these engine numbers, write an executive summary, assumptions commentary,
-> upgrade-path recommendation (day-one future-ready vs retrofit), key risks (long-lead
-> transformers/switchgear/CDUs, power availability, slab loading, commissioning L1-L5) and next
-> steps for a 200-rack AI hall going from 15 kW air to 140 kW D2C liquid in Northern Virginia."
+## More scenarios
+| Scenario | Inputs | Expected |
+|---|---|---|
+| D2C switch | Greenfield, Custom density 40 then 50 kW/rack, 20 MW, Dallas, Hybrid chosen | 40 kW: Hybrid, PUE 1.35, $18.1M/MW. 50 kW: D2C selected automatically (warning shown), PUE 1.20, $19.1M/MW |
+| Premium 2N | Greenfield, 50 MW GB200 NVL72, Singapore, 2N, 15-year horizon | $1.76B ($35.2M/MW), 44 generators, provisions now recommended |
+| Kyber campus | Greenfield, 200 MW Rubin Ultra NVL576 (Kyber), Phoenix | 334 racks at 600 kW, $6.31B ($31.5M/MW), 313 MVA (transmission-level substation warning), roadmap warning |
+| Colo upgrade | Fit-out, 100 racks, 12 kW to B200 HGX, Dallas | $15.1M current vs $72.7M future-ready ($12.8M/MW); fit out future-ready now |
 
 ## 60-second demo script
-1. **(0-10s)** "AI racks went from 15 kW to 140 kW. Owners have to decide: build for today, or
-   build future-ready? RackReady AI answers that in one click."
-2. **(10-20s)** Point at the sidebar defaults (200 racks, NoVA, D2C auto above 45 kW) and click
-   **Run cost model**. Read the cards: $37.6M vs $350.2M, $12.5M per MW for both.
-3. **(20-30s)** **CapEx tab**: "Div 26 electrical and Div 23 mechanical are two-thirds of the cost.
-   CDUs and liquid piping are the new money."
-4. **(30-40s)** **Future-ready upgrade tab**: "Retrofitting later costs ~$501M vs $350M day one,
-   because of the live-site premium, demolition and four months of downtime."
-5. **(40-50s)** **Risks tab**: "The deterministic engine does the math, and NVIDIA Nemotron on
-   Nebius Token Factory writes the narrative as a senior cost manager: long-lead transformers,
-   power availability, slab loading."
-6. **(50-60s)** Click **Download report**. "A cost manager gets a defensible first-pass model in
-   minutes instead of days."
+1. Open the default preset: point at the four summary cards and the recommendation.
+2. **Design calculations**: scroll power, cooling and floor loading; switch to "Future target (600 kW/rack)".
+3. **Future-ready**: the three paths and the provisions list (800 VDC space, slab, headers).
+4. Change the platform to Custom 40 kW, then 50 kW: the cooling locks to D2C above 45 kW.
+5. Switch the preset to the existing-hall fit-out: current vs future-ready vs retrofit later.
+6. Download the one-page PDF. Open the narrative written by NVIDIA Nemotron on Nebius Token Factory.

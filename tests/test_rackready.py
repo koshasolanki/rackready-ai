@@ -1,168 +1,276 @@
-import os, sys, types
+"""RackReady AI tests: physics consistency, public sanity ranges, rules and exports."""
+import math
+import os
+import re
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
-from engine import (run_model, ASSUMPTIONS, COOLING_TYPES, REGIONS, D2C, GREENFIELD, GF_REDUNDANCY,
-                    PLATFORM_CHOICES, summary_for_llm, effective_cooling)
-import workbook_basis as WB
+
+import design as DS
+import engine as E
 import llm
+import platforms as PL
+import report as R
+from design import AIR, D2C, HYBRID
+
+ALL_PLATFORMS = list(PL.PLATFORMS)
 
 
-# ----------------------------------------------------------------- fit-out
-def test_fitout_defaults_believable():
-    r = run_model()
-    assert r["mode"] == "fitout"
+def gf(**kw):
+    return E.run_model({"project_type": E.GREENFIELD, **kw})
+
+
+def fit(**kw):
+    return E.run_model({"project_type": E.FITOUT, "size_by": "Racks", "racks": 200, **kw})
+
+
+# ----------------------------------------------------------------- internal consistency (physics)
+@pytest.mark.parametrize("name", ALL_PLATFORMS)
+def test_design_physics(name):
+    r = gf(platform=name)
+    dz = r["design"]["design"]
+    v, p = dz["v"], dz["params"]
+    pf, V = p["pf_service"], p["voltage"]
+    # MVA >= MW / PF, transformers cover it
+    assert v["service_mva"] >= v["service_mw"] / pf - 1e-6
+    assert v["service_mw"] >= v["fac_peak_kw"] / 1000 - 1e-6
+    if dz["onsite_hv"]:
+        assert v["main_tx"] * p["main_tx_mva"] >= v["service_mva"]
+    # tons = kW / 3.517
+    assert v["cool_tons"] == pytest.approx(v["cool_kw"] / 3.517, rel=1e-9)
+    # Q = P / (rho cp dT) for both liquid loops
+    if v["liquid_kw"]:
+        assert v["tcs_lps"] == pytest.approx(v["liquid_kw"] / (p["tcs_rho"] * p["tcs_cp"] * p["tcs_dT"]) * 1000, rel=1e-9)
+        assert v["fws_lps"] == pytest.approx(v["liquid_kw"] / (p["w_rho"] * p["w_cp"] * p["fws_dT"]) * 1000, rel=1e-9)
+        assert v["liquid_kw"] + v["air_kw"] == pytest.approx(v["cool_kw"], rel=1e-9)
+    # I = P / (sqrt3 V PF)
+    rack_i = r["design"]["platform"]["kw_peak"] * 1000 / (math.sqrt(3) * V * p["pf_rack"])
+    assert v["rack_amps"] == pytest.approx(rack_i, rel=1e-9)
+    assert v["busway_rating"] >= 1.25 * v["busway_amps"] or v["busway_rating"] == 0
+    assert v["busway_rating"] > 0 or v["rack_amps"] * 1.25 > 5000
+    # heat rejection >= cooling load; PUE is an energy ratio >= 1
+    assert v["reject_kw"] >= v["cool_kw"]
+    assert v["fac_mwh"] == pytest.approx(v["it_mwh"] * v["pue"], rel=1e-9)
+    # generators carry the facility peak with redundancy
+    assert v["gens"] * p["gen_mw"] >= v["fac_peak_kw"] / 1000
+    # floor pressure = weight / footprint
+    plat = r["design"]["platform"]
+    psf = plat["weight_lb"] / (plat["rack_w_m"] * plat["rack_d_m"] * DS.SF_PER_M2)
+    assert v["rack_psf"] == pytest.approx(psf, rel=1e-6)
+    # every step has formula, inputs and a numeric result
+    for s in dz["steps"]:
+        assert s["formula"] and s["inputs"] is not None and s["unit"] is not None
+
+
+def test_worked_examples_from_engineering_references():
+    """Hand-checkable examples."""
+    assert 120_000 / (math.sqrt(3) * 415 * 0.98) == pytest.approx(170.4, abs=0.5)
+    # 18 MW of liquid at 10 K with water -> about 431 L/s (6,800 gpm)
+    q = 18_000 / (997 * 4.18 * 10) * 1000
+    assert q == pytest.approx(431.9, abs=1) and q * DS.GPM_PER_LPS == pytest.approx(6846, abs=15)
+    # 2 MW x 10 min = 333 kWh before losses
+    assert 2000 * 10 / 60 == pytest.approx(333.3, abs=0.1)
+    assert DS.KW_PER_TON == 3.517
+
+
+def test_default_worked_example_numbers():
+    r = gf()
+    d = r["design"]
+    v = d["design"]["v"]
+    assert d["racks"] == 741 and d["it_mw"] == 100
+    assert v["pue"] == pytest.approx(1.20, abs=0.01)
+    assert v["service_mva"] == pytest.approx(156.3, abs=0.5)
+    assert v["gens"] == 50 and v["ups_modules"] == 129 and v["cdus"] == 67
+    assert v["cool_tons"] == pytest.approx(30_024, abs=5)
+    assert v["tcs_lps"] == pytest.approx(2252, abs=3)
+    assert v["busway_rating"] == 3000
+    assert d["facility_per_mw"] == pytest.approx(19.84e6, rel=0.005)
+    assert abs(sum(d["lines"].values()) - d["capex"]) < 1
+
+
+# ----------------------------------------------------------------- public sanity ranges
+@pytest.mark.parametrize("name", ALL_PLATFORMS)
+def test_greenfield_ranges(name):
+    r = gf(platform=name)
+    d = r["design"]
+    lo, hi, _ = E.RANGES["facility_per_mw_hd"]
+    assert lo <= d["facility_per_mw"] <= hi
+    assert 1.10 <= d["design"]["v"]["pue"] <= 1.50
+    assert 0.0 <= d["design"]["v"]["wue"] <= 2.6
+    assert all(c["ok"] for c in r["checks"]), [c for c in r["checks"] if not c["ok"]]
+
+
+def test_air_cooled_range():
+    r = gf(platform=PL.CUSTOM, custom_kw=15, cooling=AIR)
+    d = r["design"]
+    assert d["cooling"] == AIR
+    assert 10e6 <= d["facility_per_mw"] <= 15e6        # ~$10-15M/MW for air
+    assert 1.35 <= d["design"]["v"]["pue"] <= 1.50
+    assert 1.5 <= d["design"]["v"]["wue"] <= 2.6        # evaporative towers
+
+
+def test_power_prices_and_lead_times():
+    for reg in E.REGIONS.values():
+        assert 0.05 <= reg["power"] <= 0.20
+    us = [v["power"] for k, v in E.REGIONS.items() if k.startswith("US")]
+    assert all(0.06 <= p <= 0.12 for p in us)
+    assert 104 <= E.TRANSFORMER_WEEKS <= 156               # 1-2+ years
+    gen = next(x for x in E.LONG_LEAD if x[0].startswith("Standby generators"))
+    assert 52 <= gen[1] <= gen[2] <= 110                     # about 1.5-2 years
+
+
+def test_gpu_rates_inside_public_ranges():
+    for name, (lo, hi) in E.GPU_MARKET.items():
+        assert lo <= PL.PLATFORMS[name]["gpu_hr"] <= hi
+    assert 2.0 <= PL.PLATFORMS["H100 HGX"]["gpu_hr"] <= 4.0   # Hopper-class $2-4
+
+
+def test_fitout_ranges():
+    r = fit()
     c, f = r["current"], r["future"]
-    assert abs(c["it_mw"] - 3.0) < 1e-9 and abs(f["it_mw"] - 28.0) < 1e-9
-    assert 10e6 <= c["capex_per_mw"] <= 15e6
-    assert 10e6 <= f["capex_per_mw"] <= 18e6
-    assert f["cooling"] == D2C and f["cooling_auto"] and c["cooling"] == "Air"
-    assert f["cdus"] == 19  # ROUNDUP(28 / 1.6) + 1
+    assert 9e6 <= c["capex_per_mw"] <= 16e6
+    assert 7e6 <= f["capex_per_mw"] <= 30e6
     for s in (c, f):
-        assert abs(s["capex"] - (s["direct"] + s["soft"] + s["contingency"])) < 1
-        assert abs(sum(s["systems"].values()) - s["direct"]) < 1
+        assert abs(s["capex"] - (s["direct"] + s["soft"] + s["contingency"] + s["escalation"])) < 1
         assert abs(sum(s["opex_items"].values()) - s["opex"]) < 1
-        assert abs(sum(v for _, _, v in s["detail"]) - s["direct"]) < 1
-    e = 28000 * 0.8 * 1.20 * 8760 * 0.08
-    fo = f["opex_items"]
-    assert abs(fo["IT energy"] + fo["Cooling energy"] + fo["Other facility energy (losses, lighting)"] - e) < 1
-    assert abs(f["revenue"] - 200 * 72 * 3.5 * 0.8 * 8760) < 1
-    assert f["simple_payback"] and 1 < f["simple_payback"] < 10
-    assert r["warnings"] == []
-    assert r["upgrade"]["recommended"].startswith("Build future-ready")
 
 
-def test_fitout_all_options_run():
-    for cool in COOLING_TYPES:
-        for reg in REGIONS:
-            for red in ASSUMPTIONS["redundancy"]:
-                for tier in ASSUMPTIONS["tier"]:
-                    r = run_model({"future_cooling": cool, "region": reg, "redundancy": red, "tier": tier})
-                    assert r["future"]["capex"] > 0 and r["future"]["cooling"] == D2C
+# ----------------------------------------------------------------- the D2C rule in every mode
+@pytest.mark.parametrize("kw,expect", [(40, HYBRID), (45, HYBRID), (46, D2C), (50, D2C), (600, D2C)])
+def test_d2c_rule_greenfield(kw, expect):
+    r = gf(platform=PL.CUSTOM, custom_kw=kw, cooling=HYBRID)
+    assert r["design"]["cooling"] == expect
+    assert r["design"]["cooling_auto"] == (expect == D2C)
 
 
-def test_multipliers_direction():
-    base = run_model()["future"]["capex"]
-    assert run_model({"redundancy": "2N"})["future"]["capex"] > base
-    assert run_model({"tier": "Tier IV"})["future"]["capex"] > base
-    assert run_model({"region": "India - Mumbai"})["future"]["capex"] < base
+@pytest.mark.parametrize("kw,expect", [(40, HYBRID), (50, D2C), (600, D2C)])
+def test_d2c_rule_fitout(kw, expect):
+    r = fit(platform=PL.CUSTOM, custom_kw=kw, cooling=HYBRID)
+    assert r["future"]["cooling"] == expect
+    r2 = fit(current_kw=50, current_cooling=AIR)
+    assert r2["current"]["cooling"] == D2C
 
 
-# ----------------------------------------------------------------- D2C rule
-@pytest.mark.parametrize("kw,chosen,expect", [
-    (40, "Air", "Air"), (45, "Hybrid (rear-door + air)", "Hybrid (rear-door + air)"),
-    (45.1, "Air", D2C), (50, "Hybrid (rear-door + air)", D2C), (140, "Air", D2C), (600, D2C, D2C)])
-def test_d2c_rule(kw, chosen, expect):
-    assert effective_cooling(kw, chosen)[0] == expect
+def test_600kw_case():
+    r = gf(platform=PL.CUSTOM, custom_kw=600)
+    d = r["design"]
+    v = d["design"]["v"]
+    assert d["cooling"] == D2C and v["pue"] < 1.25
+    assert v["rack_amps"] > 800                          # why 800 VDC
+    assert v["dc800_amps"] < v["busbar54_amps"]
+    assert d["facility_per_mw"] > 25e6
+    k = gf(platform="Rubin Ultra NVL576 (Kyber)")
+    assert k["design"]["kw"] == 600
 
 
-def test_d2c_rule_fitout_current_and_warning():
-    r = run_model({"current_kw": 50.0, "current_cooling": "Air", "future_cooling": "Air"})
-    assert r["current"]["cooling"] == D2C and r["future"]["cooling"] == D2C
-    assert sum("auto-selected" in w for w in r["warnings"]) == 2
-    r = run_model({"current_kw": 40.0, "current_cooling": "Air"})
-    assert r["current"]["cooling"] == "Air"
-    assert any("exceeds the practical limit of Air" in w for w in r["warnings"])
+# ----------------------------------------------------------------- greenfield = single build
+def test_greenfield_single_build():
+    r = gf()
+    assert r["mode"] == "greenfield" and "current" not in r
+    p = E.summary_for_llm(r)
+    assert "current" not in p and "retrofit_comparison" not in p
+    text = llm.fallback_narrative(r).lower()
+    assert "current build" not in text and "upgrade path" not in text
 
 
-def test_d2c_rule_greenfield_custom():
-    lo = run_model({"project_type": GREENFIELD, "gf_platform": "Custom", "gf_custom_kw": 40.0,
-                    "gf_cooling": "Air"})["design"]
-    hi = run_model({"project_type": GREENFIELD, "gf_platform": "Custom", "gf_custom_kw": 50.0,
-                    "gf_cooling": "Air"})["design"]
-    assert lo["cooling"] == "Air" and not lo["cooling_auto"]
-    assert hi["cooling"] == D2C and hi["cooling_auto"]
+# ----------------------------------------------------------------- future-ready horizon
+@pytest.mark.parametrize("h,kw", [("5 years", 230), ("10 years", 600), ("15 years", 1000)])
+def test_horizons(h, kw):
+    r = gf(horizon=h)
+    f = r["future"]
+    assert f["active"] and f["target_kw"] == kw
+    names = [x["path"] for x in f["paths"]]
+    assert len(names) == 3 and f["best"] in names
+    best = min(f["paths"], key=lambda x: x["pv_total"])
+    assert best["path"] == f["best"]
+    full = next(x for x in f["paths"] if x["path"].startswith("Full"))
+    prov = next(x for x in f["paths"] if "provisions" in x["path"])
+    assert full["day1"] >= prov["day1"] >= 0
+    assert f["design_T"]["cooling"] == D2C
+    if kw >= 400:
+        assert any(p["provision"] == "800 VDC readiness" for p in f["provisions"])
 
 
-# ----------------------------------------------------------------- greenfield
-def _gf(**kw):
-    return run_model({"project_type": GREENFIELD, **kw})
+def test_horizon_none_and_already_ready():
+    assert not gf(horizon="Today only")["future"]["active"]
+    assert not gf(platform="Rubin Ultra NVL576 (Kyber)", horizon="10 years")["future"]["active"]
 
 
-def test_greenfield_single_design_no_current():
-    r = _gf()
-    assert r["mode"] == "greenfield"
-    assert "current" not in r and "upgrade" not in r
-    p = summary_for_llm(r)
-    assert "current" not in p and "upgrade_paths" not in p
-    txt = llm.fallback_narrative(r)
-    assert "Current build" not in txt and "retrofit" not in txt.lower()
-    assert "## Design & scope recommendation" in txt
-    assert r["warnings"] == []
+def test_spare_utility_increases_target():
+    a = gf(spare_utility_pct=0.0)["future"]
+    b = gf(spare_utility_pct=0.25)["future"]
+    assert b["target_mw"] == pytest.approx(a["target_mw"] * 1.25)
+    assert b["delta"] > a["delta"]
 
 
-@pytest.mark.parametrize("plat", WB.PLATFORM_NAMES)
-def test_greenfield_reconciles_to_workbook(plat):
-    d = _gf(gf_platform=plat)["design"]
-    b = WB.PLATFORMS[plat]
-    assert abs(d["facility"] - b["right"] * 100) < 1          # 03_SIDE8 r9
-    assert abs(sum(d["csi"].values()) - d["facility"]) < 1
-    assert abs(d["it_hw"] - b["it_per_mw"] * 100) < 100          # 03_SIDE8 r14 x 100
-    all_in = d["facility"] + d["it_hw"] + 5e6 + 8e6
-    assert abs(all_in - b["all_in_100mw"]) < 100                 # 03_SIDE8 r16
-    assert abs(d["capex"] - (d["facility"] + 13e6)) < 1
-    assert d["band_check"] == "IN BAND"
-    assert abs(d["racks"] - 100_000 / b["kw"]) < 1e-6
-    for row in d["reconciliation"]:
-        if row[0].startswith("ALL-IN") or row[0].startswith("= Facility"):
-            assert abs(row[3]) < 100
-    if b["kw"] > 45:
-        assert d["cooling"] == D2C
-    assert d["quantities"]["gens_n1"] == b["gens_n1_100mw"]   # 03_SIDE8 r22
+# ----------------------------------------------------------------- resilience and options
+def test_resilience_ordering():
+    costs = {k: gf(resilience=k, horizon="Today only")["design"]["capex"] for k in E.RESILIENCE}
+    assert costs["N"] < costs["N+1"] < costs["N+2"] < costs["2N"]
+    g = {k: gf(resilience=k)["design"]["design"]["v"]["gens"] for k in E.RESILIENCE}
+    assert g["N"] < g["N+1"] < g["N+2"] < g["2N"]
 
 
-def test_greenfield_change_pricing_worked_example():
-    # 12_CHANGE_PRICING A57: GB300 100 MW, N+2 = +1 x $3.5M x 1.15 ~ $4.0M before soft
-    d = _gf(gf_redundancy=GF_REDUNDANCY[1])["design"]
-    assert abs(d["changes"][0][1] - 4.025e6) < 1
-    d = _gf(gf_redundancy=GF_REDUNDANCY[2])["design"]
-    assert abs(d["changes"][0][1] - 39 * 3.5e6 * 1.30) < 1     # ~ $177M
-    base = _gf()["design"]["capex"]
-    assert _gf(gf_fuel_96h=True)["design"]["capex"] > base
-    assert _gf(gf_union_seismic_piles=True)["design"]["capex"] > base
-    assert _gf(gf_contingency_pct=0.08)["design"]["capex"] > base
-    assert abs(_gf(gf_it_fitout=True)["design"]["facility"] - 2_036_279_950) < 5   # 03_SIDE8 r37 x 100
+def test_contingency_and_fuel_move_cost():
+    base = gf()["design"]["capex"]
+    assert gf(contingency=0.15)["design"]["capex"] > base
+    assert gf(fuel_hours=96)["design"]["capex"] > base
 
 
-def test_greenfield_sizing_options_and_payload():
-    d = _gf(gf_size_by="Racks", gf_racks=200)["design"]
-    assert abs(d["it_mw"] - 27.0) < 1e-9
-    for plat in PLATFORM_CHOICES:
-        for reg in REGIONS[:3]:
-            r = _gf(gf_platform=plat, region=reg)
-            assert r["design"]["capex"] > 0 and r["design"]["simple_payback"]
-    p = summary_for_llm(_gf())
-    assert p["project_type"] == GREENFIELD and p["capex"]["band_check"] == "IN BAND"
-    assert "Greenfield" in llm.SYSTEM_PROMPT and "45 kW" in llm.SYSTEM_PROMPT
+def test_regions_and_presets():
+    for reg in E.REGION_NAMES:
+        r = gf(region=reg)
+        assert r["design"]["capex"] > 0
+    for name, pre in E.PRESETS.items():
+        r = E.run_model(pre)
+        assert r["recommendation"]["headline"]
+        assert all(c["ok"] for c in r["checks"]), (name, [c for c in r["checks"] if not c["ok"]])
 
 
-def test_workbook_basis():
-    for p in WB.PLATFORMS.values():
-        assert abs(sum(p["csi_mix"].values()) - 1) < 1e-3
-    b = WB.custom_basis(135)
-    assert abs(b["right"] - WB.PLATFORMS["GB300 NVL72"]["right"]) < 1
-    assert not WB.custom_basis(15)["in_range"]
+def test_size_by_racks():
+    r = gf(size_by="Racks", racks=100)
+    assert r["design"]["racks"] == 100 and r["design"]["it_mw"] == pytest.approx(13.5)
 
 
-# ----------------------------------------------------------------- llm plumbing
-def test_fallback_no_key():
-    txt = llm.fallback_narrative(run_model())
-    for h in ["## Executive summary", "## Upgrade path recommendation", "## Key risks"]:
-        assert h in txt
-    with pytest.raises(llm.LLMError):
-        llm.stream_narrative({}, api_key="")
-    assert llm.resolve_api_key(None, None) in (None, os.environ.get("NEBIUS_API_KEY"))
+# ----------------------------------------------------------------- exports and wording
+def _public_text(r):
+    parts = [R.markdown_report(r), llm.fallback_narrative(r), llm.SYSTEM_PROMPT]
+    for df in R.all_tables(r).values():
+        parts.append(df.to_csv(index=False))
+    return "\n".join(parts)
 
 
-def test_think_strip(monkeypatch):
-    def mk(t):
-        return types.SimpleNamespace(choices=[types.SimpleNamespace(delta=types.SimpleNamespace(content=t))])
-    pieces = ["<thi", "nk>secret reasoning</th", "ink>\n## Executive", " summary\nHello world."]
+BANNED = re.compile(r"workbook|spreadsheet|\bsheet\b|\brow \d|\bcells? [A-Z]{1,2}\d+|Method A|Method B|(?-i:RIGHT)|\.xlsx|\.docx",
+                    re.IGNORECASE)
 
-    class FakeClient:
-        def __init__(self, **kw):
-            self.chat = types.SimpleNamespace(completions=types.SimpleNamespace(
-                create=lambda **k: iter([mk(p) for p in pieces])))
-    import openai
-    monkeypatch.setattr(openai, "OpenAI", FakeClient)
-    out = "".join(llm.stream_narrative({"x": 1}, api_key="k"))
-    assert "secret" not in out and out.startswith("## Executive summary"), out
+
+@pytest.mark.parametrize("pre", list(E.PRESETS))
+def test_no_internal_references(pre):
+    r = E.run_model(E.PRESETS[pre])
+    text = _public_text(r)
+    m = BANNED.search(text.replace("NVL72", ""))
+    assert m is None, m and text[max(0, m.start() - 80): m.end() + 80]
+    assert E.DISCLAIMER in R.markdown_report(r)
+
+
+@pytest.mark.parametrize("pre", list(E.PRESETS))
+def test_pdf_one_page(pre):
+    b = R.pdf_report(E.run_model(E.PRESETS[pre]))
+    assert b[:4] == b"%PDF"
+    assert len(re.findall(rb"/Type\s*/Page[^s]", b)) == 1
+
+
+def test_llm_payload_has_design_calcs():
+    p = E.summary_for_llm(gf())
+    assert "design_calculations" in p and p["design_calculations"]["service_mva"] > 0
+    assert p["future_ready"]["best"]
+    p2 = E.summary_for_llm(fit())
+    assert "retrofit_comparison" in p2 and p2["future_ready"]["design_calculations"]
+
+
+def test_api_key_never_in_payload(monkeypatch):
+    monkeypatch.setenv("NEBIUS_API_KEY", "sk-test-secret")
+    p = E.summary_for_llm(gf())
+    assert "sk-test-secret" not in str(p)
+    assert llm.resolve_api_key() == "sk-test-secret"
