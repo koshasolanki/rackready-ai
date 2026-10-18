@@ -11,7 +11,8 @@ Built for the **Nebius x NVIDIA Build Week** hackathon (2026).
 
 RackReady AI models construction CapEx, the future-ready upgrade path, OpEx and ROI for
 high-density AI data center halls. It compares a **current** build (e.g. 15 kW/rack, air) with a
-**future-ready** build (e.g. 140 kW/rack, closed-loop liquid) for the same hall.
+**future-ready** build (e.g. 140 kW/rack, D2C liquid) for the same hall, or prices **one greenfield
+new build from scratch** calibrated to the owner's 8-platform cost workbook.
 
 > All figures are **indicative planning numbers** (2026 USD, Northern Virginia = 1.00), not a bid or estimate of record.
 
@@ -59,51 +60,57 @@ with little data. RackReady AI gives them transparent numbers in seconds.
   to try from the same code path.
 - **Other Nebius tools.** None beyond Token Factory; no Nebius GPU instances or fine-tuning were used.
 
-### Example result (defaults)
-200 racks · Northern Virginia · 15 → 140 kW/rack · Air → Closed-loop liquid · Tier III · N+1 · $0.08/kWh · 80% utilization
+### Example result: existing-building fit-out (defaults)
+200 racks · Northern Virginia · 15 → 140 kW/rack · Air → **D2C liquid (auto above 45 kW/rack)** · Tier III · N+1 · $0.08/kWh · 80% utilization
 
 | Metric | Current | Future-ready |
 |---|---|---|
 | IT load | 3.0 MW | 28.0 MW |
-| Total CapEx | $37.6M | $384.4M |
-| CapEx per MW IT | $12.5M | $13.7M |
-| Annual OpEx | $4.8M | $31.1M |
-| Simple payback | 3.7 yrs | 3.2 yrs |
+| Cooling | Air | Direct-to-chip (D2C), 19 CDUs (N+1, 1.6 MW) |
+| Total CapEx | $37.6M | $350.2M |
+| CapEx per MW IT | $12.5M | $12.5M |
+| Annual OpEx | $4.8M | $31.0M |
+| Simple payback | 3.7 yrs | 3.6 yrs |
 
-Building current now and retrofitting in year 3 costs **$546.9M** including 4 months of downtime.
-That is a **$162.5M penalty**, so the engine recommends building future-ready on day one
-(NPV $820.1M over 10 years at 8%). See a live Nemotron narrative in
-[`docs/sample_nemotron_narrative.md`](docs/sample_nemotron_narrative.md).
+Building current now and retrofitting in year 3 costs **$500.7M** including 4 months of downtime,
+a **$150.5M penalty**, so the engine recommends building future-ready on day one
+(NPV $630.5M over 10 years at 8%). Indicative planning numbers, not a bid.
 
-### Greenfield: build from scratch (new)
-Pick **Project type → Greenfield: new build from scratch** in the sidebar to cost a new campus instead of
-a fit-out of an existing hall. Every tab switches over:
+### Greenfield: one new build from scratch, calibrated to the owner's workbook
+Pick **Project type → Greenfield** for a single design (no "current" case, no retrofit path). Choose a
+GPU platform from the cost workbook *AI Rack Research: The Right Estimate* (H100, H200, B200, GB200,
+GB300, Vera Rubin, TPU Ironwood, Kyber) or a custom kW/rack, and size it by IT MW (default 100 MW,
+the workbook campus) or by racks. The engine (`run_greenfield` in `engine.py`, data in `workbook_basis.py`):
 
-- **CapEx** adds land acquisition ($/acre × acres sized from footprint ÷ coverage + equipment yard),
-  site work & civil (CSI 02/31/32/33), a new shell & core (CSI 03-14, $/gsf), an owner-side HV
-  substation & yard above 20 MW, utility-side interconnection, GC + design/permit/fee soft costs,
-  contingency and escalation to the construction mid-point, on top of the full MEP/IT trade model.
-- **Benchmark basis** comes from a cost workbook supplied by the user (*AI Rack Research: The Right Estimate*, 8 platforms):
-  facility LOW/RIGHT/HIGH $/IT MW (03_SIDE8 rows 8, 12, 13), GSF per IT MW (01_ASSUME8 row 12),
-  the 22-division CSI mix (20_CSI8_MATRIX), GC 9% and contingency screen (01_ASSUME8 rows 63-64), and
-  land/interconnect screens (rows 78-79). See `workbook_basis.py`. The app checks each greenfield
-  result against the band (IN / BELOW / ABOVE).
-- **Upgrade path**: building for the current density first means a later building extension, more
-  land and a bigger utility service, at a live-site premium plus escalation.
-- **OpEx** adds property tax, insurance and grounds upkeep on the owned asset; **ROI** and payback
-  use the full greenfield investment; **Risks** adds a schedule (power vs construction vs transformer
-  lead time) and a greenfield risk register (interconnection queue, permitting, long-lead gear, site).
+- prices facility $ = workbook **RIGHT $/IT MW** (03_SIDE8 r8) × IT MW, split into the **22 CSI
+  divisions** of 20_CSI8_MATRIX; kW/rack, GPUs/rack, IT $/rack, GSF/MW, PUE and CDU MW come from 01_ASSUME8;
+- counts N+1 machines the workbook way: gens = ROUNDUP(IT × PUE / 3) + 1, UPS ≈ 1.1 × IT MW modules,
+  CDUs = ROUNDUP(IT MW / CDU MW) + 1, taps = 2 × racks;
+- prices changes with 12_CHANGE_PRICING (N+2, 2N gens, 2N UPS, 96 h fuel, union/seismic/piles,
+  contingency, IT fit-out): machines × unit + 13% soft on the delta;
+- adds what the workbook keeps outside facility $: land ($5M) and utility-side interconnect ($8M)
+  screens (01_ASSUME8 r78-79), IT iron (r9) and optional AI fabric (14_EIGHT_DEEP r47) in ROI;
+- shows a **reconciliation table** back to the workbook's own totals, the LOW / RIGHT / HIGH band,
+  all 8 platforms at the same MW, the 11_SPEC_MOVES scope sheet, OpEx, payback and a schedule
+  (power-real + 6 months, 90-week transformers, design + construction).
 
-| Default 200-rack hall, greenfield | Current (15 kW, air) | Future-ready (140 kW, liquid) |
-|---|---|---|
-| Total greenfield CapEx incl. land | $60.2M | $613.3M |
-| CapEx per MW IT (all-in) | $20.1M | $21.9M |
-| Workbook-comparable facility $/MW IT | $14.5M (below workbook range) | $18.6M (IN BAND $18.4M-$25.2M) |
-| Site / utility service | 5.0 ac / 4.5 MW | 14.0 ac / 32.2 MW |
-| Simple payback | 4.8 yrs | 4.0 yrs |
-| Months to ready-for-service | ~30 (transformers) | ~30 (transformers) |
+| 100 MW IT greenfield | GB300 NVL72 | H100 HGX | Vera Rubin |
+|---|---|---|---|
+| kW/rack · racks · cooling | 135 · 741 · D2C (auto) | 41 · 2,439 · RDHx / air | 220 · 455 · D2C (auto) |
+| Facility $ (= workbook 03_SIDE8 r9) | $1,916.3M | $1,700.0M | $2,163.1M |
+| Facility $/MW IT · band check | $19.2M · IN BAND | $17.0M · IN BAND | $21.6M · IN BAND |
+| Greenfield CapEx (+ land + interconnect) | $1,929.3M | $1,713.0M | $2,176.1M |
+| ALL-IN facility + IT + adders (= 03_SIDE8 r16) | $4,892.2M | $3,908.1M | $6,039.8M |
+| Simple payback (indicative $/GPU-hr) | 3.3 yrs | 3.5 yrs | 4.1 yrs |
 
-Build-current-then-retrofit on a greenfield site costs **$896.6M** vs **$613.3M** future-ready on day one.
+App totals match the workbook to the dollar at workbook defaults; differences only appear when you turn
+on changes, a location factor, owner costs or escalation (all shown as reconciliation lines).
+
+### Cooling rule
+Every design above **45 kW/rack** uses **direct-to-chip (D2C) liquid**, auto-selected and locked in the
+sidebar ("D2C auto-selected above 45 kW/rack"). At or below 45 kW you choose air, rear-door hybrid or D2C.
+
+See a live Nemotron narrative in [`docs/sample_nemotron_narrative.md`](docs/sample_nemotron_narrative.md).
 
 ## Screenshots
 
@@ -115,13 +122,13 @@ Build-current-then-retrofit on a greenfield site costs **$896.6M** vs **$613.3M*
 | **7 · Risks & recommendations**: long-lead equipment and the narrative (shown here with the offline fallback)<br>![Risks](docs/demo_tab7.png) | |
 
 ## Features
-- Project type: **existing building fit-out** or **greenfield new build from scratch** (land, site,
-  shell, HV yard, utility interconnection, soft costs, contingency, escalation, schedule).
-- Inputs: racks, current and future kW/rack, 4 cooling types (air, hybrid rear-door, direct-to-chip,
-  closed-loop full liquid), 8 regions with location factors, $/kWh, utilization, analysis horizon,
+- Project type: **existing building fit-out** (current vs future-ready + retrofit path) or
+  **greenfield new build from scratch** (one design, priced from the owner's 8-platform cost workbook).
+- Inputs: racks, current and future kW/rack, 3 cooling types (air, hybrid rear-door, direct-to-chip D2C,
+  auto-selected above 45 kW/rack), 8 regions with location factors, $/kWh, utilization, analysis horizon,
   Tier II/III/IV, N/N+1/2N, and GPUs per rack and $/GPU-hr for revenue.
 - 4 headline cards and 7 report tabs with tables, Plotly charts and expanders.
-- Cooling guardrail: the app warns when a cooling type cannot handle the rack density (e.g. air at 140 kW).
+- Cooling rule: D2C is auto-selected above 45 kW/rack in every mode; the app warns when air is pushed past ~30 kW.
 - Downloads: the full report as Markdown and all tables as a CSV zip.
 - A "How it works" expander explains the domain in plain language.
 
@@ -163,7 +170,8 @@ Never commit `.streamlit/secrets.toml`; it is in `.gitignore`.
 
 ## Tuning the model
 Edit `ASSUMPTIONS` in `engine.py`. Every rate is commented, and the Assumptions tab shows the live values.
-Greenfield rates are in `ASSUMPTIONS["greenfield"]` and most are editable in the sidebar.
+Greenfield values come from `workbook_basis.py`; the few indicative greenfield inputs the workbook
+lacks (months to power, construction months, $/GPU-hr, insurance) are in `ASSUMPTIONS["greenfield"]`.
 `SAMPLE_INPUTS.md` has demo scenarios (NoVA, Dallas, Singapore Tier IV 2N, and a greenfield build) with expected results.
 
 ## Project structure
@@ -172,7 +180,8 @@ rackready_ai/
 ├── app.py                       # Streamlit UI (cards, 7 tabs, downloads)
 ├── engine.py                    # ASSUMPTIONS + deterministic cost engine
 ├── llm.py                       # Nebius/Nemotron client, system prompt, fallback narrative
-├── workbook_basis.py            # greenfield benchmarks extracted from the user's cost workbook
+├── workbook_basis.py            # values extracted from the owner's cost workbook (sheet/row cited)
+├── ui_common.py / ui_fitout.py / ui_greenfield.py   # tab layouts per project type
 ├── requirements.txt
 ├── LICENSE                      # MIT
 ├── .streamlit/config.toml       # dark theme
