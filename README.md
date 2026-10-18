@@ -75,6 +75,36 @@ That is a **$162.5M penalty**, so the engine recommends building future-ready on
 (NPV $820.1M over 10 years at 8%). See a live Nemotron narrative in
 [`docs/sample_nemotron_narrative.md`](docs/sample_nemotron_narrative.md).
 
+### Greenfield: build from scratch (new)
+Pick **Project type → Greenfield: new build from scratch** in the sidebar to cost a new campus instead of
+a fit-out of an existing hall. Every tab switches over:
+
+- **CapEx** adds land acquisition ($/acre × acres sized from footprint ÷ coverage + equipment yard),
+  site work & civil (CSI 02/31/32/33), a new shell & core (CSI 03-14, $/gsf), an owner-side HV
+  substation & yard above 20 MW, utility-side interconnection, GC + design/permit/fee soft costs,
+  contingency and escalation to the construction mid-point, on top of the full MEP/IT trade model.
+- **Benchmark basis** comes from a cost workbook supplied by the user (*AI Rack Research: The Right Estimate*, 8 platforms):
+  facility LOW/RIGHT/HIGH $/IT MW (03_SIDE8 rows 8, 12, 13), GSF per IT MW (01_ASSUME8 row 12),
+  the 22-division CSI mix (20_CSI8_MATRIX), GC 9% and contingency screen (01_ASSUME8 rows 63-64), and
+  land/interconnect screens (rows 78-79). See `workbook_basis.py`. The app checks each greenfield
+  result against the band (IN / BELOW / ABOVE).
+- **Upgrade path**: building for the current density first means a later building extension, more
+  land and a bigger utility service, at a live-site premium plus escalation.
+- **OpEx** adds property tax, insurance and grounds upkeep on the owned asset; **ROI** and payback
+  use the full greenfield investment; **Risks** adds a schedule (power vs construction vs transformer
+  lead time) and a greenfield risk register (interconnection queue, permitting, long-lead gear, site).
+
+| Default 200-rack hall, greenfield | Current (15 kW, air) | Future-ready (140 kW, liquid) |
+|---|---|---|
+| Total greenfield CapEx incl. land | $60.2M | $613.3M |
+| CapEx per MW IT (all-in) | $20.1M | $21.9M |
+| Workbook-comparable facility $/MW IT | $14.5M (below workbook range) | $18.6M (IN BAND $18.4M-$25.2M) |
+| Site / utility service | 5.0 ac / 4.5 MW | 14.0 ac / 32.2 MW |
+| Simple payback | 4.8 yrs | 4.0 yrs |
+| Months to ready-for-service | ~30 (transformers) | ~30 (transformers) |
+
+Build-current-then-retrofit on a greenfield site costs **$896.6M** vs **$613.3M** future-ready on day one.
+
 ## Screenshots
 
 | | |
@@ -85,6 +115,8 @@ That is a **$162.5M penalty**, so the engine recommends building future-ready on
 | **7 · Risks & recommendations**: long-lead equipment and the narrative (shown here with the offline fallback)<br>![Risks](docs/demo_tab7.png) | |
 
 ## Features
+- Project type: **existing building fit-out** or **greenfield new build from scratch** (land, site,
+  shell, HV yard, utility interconnection, soft costs, contingency, escalation, schedule).
 - Inputs: racks, current and future kW/rack, 4 cooling types (air, hybrid rear-door, direct-to-chip,
   closed-loop full liquid), 8 regions with location factors, $/kWh, utilization, analysis horizon,
   Tier II/III/IV, N/N+1/2N, and GPUs per rack and $/GPU-hr for revenue.
@@ -131,7 +163,8 @@ Never commit `.streamlit/secrets.toml`; it is in `.gitignore`.
 
 ## Tuning the model
 Edit `ASSUMPTIONS` in `engine.py`. Every rate is commented, and the Assumptions tab shows the live values.
-`SAMPLE_INPUTS.md` has three demo scenarios (NoVA, Dallas, Singapore Tier IV 2N) with expected results.
+Greenfield rates are in `ASSUMPTIONS["greenfield"]` and most are editable in the sidebar.
+`SAMPLE_INPUTS.md` has demo scenarios (NoVA, Dallas, Singapore Tier IV 2N, and a greenfield build) with expected results.
 
 ## Project structure
 ```
@@ -139,6 +172,7 @@ rackready_ai/
 ├── app.py                       # Streamlit UI (cards, 7 tabs, downloads)
 ├── engine.py                    # ASSUMPTIONS + deterministic cost engine
 ├── llm.py                       # Nebius/Nemotron client, system prompt, fallback narrative
+├── workbook_basis.py            # greenfield benchmarks extracted from the user's cost workbook
 ├── requirements.txt
 ├── LICENSE                      # MIT
 ├── .streamlit/config.toml       # dark theme

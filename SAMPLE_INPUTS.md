@@ -32,6 +32,21 @@ Racks 200 · 20 → 140 kW · Air → Closed-loop full liquid · Singapore (1.15
 Tier IV · 2N. Expected: CapEx $75.8M → $623.9M ($19.0M → $22.3M/MW), future OpEx ≈ $62.9M/yr,
 payback 6.8 → 4.1 yrs. This shows how tier, redundancy and location stack up.
 
+## Scenario 4: greenfield, build from scratch (same 200-rack hall)
+Select **Project type → Greenfield: new build from scratch** and keep every other default
+(land $400k/acre, site acres and utility MW auto, interconnect $3.0M + $50k/MW, 24 months to power,
+shell & core $/gsf from the workbook, 18-month construction, design/permits 7%, contingency 8%,
+escalation 4%/yr).
+
+Expected: greenfield CapEx **$60.2M → $613.3M** incl. land (**$20.1M → $21.9M per MW IT**).
+Future-ready build-up: land $5.6M (14.0 acres), site & civil $30.6M, shell & core $135.3M
+($1,504/gsf), HV substation & yard $11.3M, utility interconnection $4.6M (32.2 MW), soft costs
+$72.9M, contingency $42.3M, escalation $32.0M. Workbook-comparable facility cost **$18.6M/MW IT,
+IN BAND** ($18.4M / $19.3M / $25.2M low / right / high). Future OpEx $36.6M/yr (adds property
+tax, insurance, grounds), payback **4.8 → 4.0 yrs**, ~30 months to ready-for-service with
+transformers on the critical path. Build-current-then-retrofit ≈ **$896.6M**, so build future-ready
+on day one. Try 48 months to power: the critical path flips to the utility.
+
 ## "Gotcha" check (good for Q&A)
 Set future cooling to **Air** at 140 kW. The app warns that air tops out around 30 kW/rack. The
 domain guardrail catches a design that looks cheaper on paper but can't work.

@@ -37,6 +37,12 @@ Domain you apply:
 - Construction phases: design (SD/DD/CD), procurement, shell & core, MEP fit-out,
   commissioning Levels 1-5 (L1 factory witness test through L5 integrated systems test).
 - PUE, energy cost, maintenance, and GPU-as-a-service revenue economics.
+- Greenfield (build from scratch) development: site selection and land, entitlement/zoning
+  and permitting, geotech and site/civil (CSI Div 02/31/32/33), new shell & core (Div 03-14),
+  owner-side HV substation/yard vs utility-side interconnection, utility interconnection
+  queues and months-to-power, owner soft costs (A/E, permits, fees, PM/CM, CxA), GC general
+  conditions, escalation to construction mid-point, property tax and insurance on an owned
+  asset, and the facility $/IT MW benchmark band (LOW / RIGHT / HIGH) from the owner's workbook.
 
 Rules:
 - The deterministic cost engine has already computed every number. Use ONLY the figures in
@@ -46,6 +52,15 @@ Rules:
 - All figures are indicative planning numbers, not a bid. Say so once.
 - Be concise, specific and practical. Use markdown headers and bullet lists. No tables
   (the app already shows them). Target 450-650 words.
+
+If "project_type" starts with "Greenfield", this is a new build from scratch: explain the land,
+site/civil, shell & core, HV yard, utility interconnection, soft costs and escalation lines,
+compare the "workbook_comparable_facility_usd_per_mw_it" to "workbook_band_usd_per_mw_it" and
+"workbook_band_check", state the critical path and months to ready-for-service, and cover
+greenfield risks: power availability / interconnection queue, entitlement and permitting,
+long-lead transformers, switchgear and generators, and schedule. In the upgrade path section,
+note that building for current density first means a building extension, more land and a bigger
+utility service later. Otherwise it is a fit-out of an existing building.
 
 Write exactly these sections:
 ## Executive summary
@@ -180,10 +195,12 @@ def fallback_narrative(res: dict) -> str:
     """Rule-based narrative built only from engine numbers. Used with no key or on error."""
     i, c, f, u = res["inputs"], res["current"], res["future"], res["upgrade"]
     best = u["recommended"]
+    gf = bool(f.get("greenfield"))
+    kind = "greenfield new build from scratch" if gf else "fit-out of an existing building"
     lines = [
         "## Executive summary",
         f"- **{i['project_name']}** in **{i['region']}**, {i['tier']}, {i['redundancy']} redundancy, "
-        f"{i['racks']} racks.",
+        f"{i['racks']} racks, **{kind}**.",
         f"- **Current build** ({c['kw_per_rack']:.0f} kW/rack, {c['cooling']}): {c['it_mw']:.1f} MW IT, "
         f"CapEx **{_fmt_m(c['capex'])}** ({_fmt_m(c['capex_per_mw'])}/MW IT).",
         f"- **Future-ready build** ({f['kw_per_rack']:.0f} kW/rack, {f['cooling']}): {f['it_mw']:.1f} MW IT, "
@@ -196,17 +213,51 @@ def fallback_narrative(res: dict) -> str:
         "",
         "## Assumptions commentary",
         f"- Unit rates are $/kW of IT for Div 26 and Div 23, with per-rack items for Div 27, liquid "
-        f"manifolds/TCS and heavy-rack slab work, scaled by a location factor of "
+        f"manifolds/TCS and {'a new-build shell & core priced per gsf from the workbook' if gf else 'heavy-rack slab work'}, scaled by a location factor of "
         f"{res_region_factor(res):.2f} and {i['tier']} / {i['redundancy']} multipliers.",
         f"- Design PUE {c['pue']:.2f} (current) vs {f['pue']:.2f} (future-ready). At "
         f"${i['power_cost']:.3f}/kWh and {i['utilization']*100:.0f}% utilization, the future-ready "
         f"design saves about **{_fmt_m(f['pue_saving_vs_air'])}/yr** in energy versus an air-cooled PUE.",
         f"- Soft costs and contingency are included; GPU hardware is "
         f"{'included' if i.get('include_gpu_hw', True) else 'excluded'} in ROI.",
+    ]
+    if gf:
+        g, gc = f["greenfield"], c["greenfield"]
+        bm = g["benchmark"]
+        oc = f["owner_costs"]
+        lines += [
+            f"- **Greenfield build-up (future-ready):** land {_fmt_m(oc['Land acquisition'])} "
+            f"({g['acres']:.1f} acres), site & civil "
+            f"{_fmt_m(f['systems']['Site work & civil (Div 02/31/32/33)'])}, new shell & core "
+            f"{_fmt_m(f['systems']['Shell & core - new build (Div 03-14)'])} "
+            f"(${g['shell_per_gsf']:,.0f}/gsf), on-site HV yard "
+            f"{_fmt_m(f['systems']['On-site HV substation & yard (Div 26)'])}, utility interconnection "
+            f"{_fmt_m(oc['Utility interconnection (utility-side)'])} for {g['utility_mw']:.1f} MW, "
+            f"soft costs {_fmt_m(f['soft'])}, contingency {_fmt_m(f['contingency'])} and escalation "
+            f"{_fmt_m(f['escalation'])}.",
+            f"- **Workbook benchmark check:** comparable facility cost "
+            f"{_fmt_m(g['workbook_comparable_per_mw'])}/MW IT vs the workbook band "
+            f"{_fmt_m(bm['low'])} / {_fmt_m(bm['right'])} / {_fmt_m(bm['high'])} (low / right / high, "
+            f"{bm['bracket']}): **{g['band_check']}**. The current build reads "
+            f"{gc['band_check']}.",
+            f"- **Schedule:** about {g['schedule']['months_to_rfs']:.0f} months to ready-for-service; "
+            f"critical path is **{g['schedule']['critical_path']}**.",
+        ]
+    lines += [
         "",
         "## Upgrade path recommendation",
     ]
-    if best.startswith("Build future-ready"):
+    if gf and best.startswith("Build future-ready"):
+        lines += [
+            "- Build future-ready from day one. On a greenfield site the building, slab, yard and "
+            "utility service are being designed anyway, so sizing them for liquid-cooled density now "
+            f"is far cheaper than a later building extension, extra land and a second utility upgrade "
+            f"(retrofit path {_fmt_m(u['path_b_total_with_downtime'])} vs {_fmt_m(u['path_a_capex'])}).",
+            "- If capital is constrained, phase the white space but not the bones: buy enough land, "
+            "file the interconnection request for the full future MW, and pour the slab, yard pads and "
+            "pathways for the future density. Defer CDUs, manifolds and some UPS/gen blocks.",
+        ]
+    elif best.startswith("Build future-ready"):
         lines += [
             f"- Build future-ready now. A retrofit means live-site work (premium "
             f"{(res_retro_premium()-1)*100:.0f}%), demolition of air-side systems, "
@@ -234,11 +285,30 @@ def fallback_narrative(res: dict) -> str:
         "- **Structural**: 140 kW liquid racks can weigh 3,000-4,000+ lb; confirm slab design early.",
         "- **GPU market**: rental rates and utilization drive ROI more than construction cost.",
     ]
+    if gf:
+        lines += [
+            "- **Interconnection queue**: months-to-power often dwarfs the land price; never present "
+            "land without months-to-power. Utility-side cost here is a screen, live studies run $2-20M+.",
+            "- **Entitlement & permitting**: zoning, noise/generator air permits, water and community "
+            "opposition can add months; start before land closes.",
+            "- **Site unknowns**: rock, poor soils, water table or a missing heavy-haul road turn into "
+            "piles, over-excavation and road work (site/civil change orders, not a % of MEP).",
+            "- **Escalation & market**: owner soft costs, escalation and contingency are planning screens; "
+            "replace with bid units at GMP.",
+        ]
     for w in res["warnings"]:
         lines.append(f"- **Design check**: {w}")
     lines += [
         "",
         "## Recommendations & next steps",
+    ]
+    if gf:
+        lines += [
+            "- File the utility interconnection request for the full future-ready MW now, and secure "
+            "a land option with expansion acreage.",
+            "- Run geotech borings and an ALTA survey before closing; confirm zoning and permits path.",
+        ]
+    lines += [
         "- Release early procurement packages for transformers, switchgear and generators.",
         "- Lock the cooling basis of design (CDU in-row vs facility, supply water temperature).",
         "- Run a Class 4 estimate with vendor budgetary quotes to replace these planning rates.",
