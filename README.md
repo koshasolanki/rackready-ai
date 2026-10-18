@@ -1,5 +1,8 @@
 # ⚡ RackReady AI: Data Center Cost Modeling Agent
 
+**Live demo:** https://rackready-ai.streamlit.app
+
+
 **Build for 15 kW racks today or 140 kW racks tomorrow? RackReady AI prices both, and NVIDIA Nemotron explains the decision.**
 
 Built for the **Nebius x NVIDIA Build Week** hackathon (2026).
