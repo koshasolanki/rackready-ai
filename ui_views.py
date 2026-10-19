@@ -42,6 +42,8 @@ def _df(df: pd.DataFrame, money_cols=None, pct_cols=(), num_cols=(), height=None
     for c in df.columns:
         if c in pct_cols:
             fmt[c] = safe("{:.0%}")
+        elif "per MW" in str(c) and "$M" in str(c):
+            fmt[c] = safe("{:,.2f}")
         elif "$M" in str(c) or (money_cols and c in money_cols):
             fmt[c] = safe("{:,.1f}")
         elif c in num_cols:
@@ -67,9 +69,8 @@ def summary(res):
     metric(c[2], "Payback (incl. IT)", R.yrs(h["payback"]), f"NPV {R.money(h['npv'])}")
     metric(c[3], "Ready for IT (months)", h["rfs_text"].replace("about ", "").replace(" months from start", ""),
            "months from start (approx.)")
-    _sc(f"**Recommendation: {rec['headline']}.** {rec['detail']}")
-    _cp("Key design: " + R.key_design_line(res))
-    _cp(CX.ESTIMATE_LABEL)
+    _sc(f"**Verdict: {rec['headline']}.** {rec['detail']}")
+    _cp(f"{E.DISCLAIMER} 2026 US dollars. Key design: {R.key_design_line(res)}.")
 
 
 def init_include_state():
@@ -85,8 +86,8 @@ def include_from_state() -> dict:
 def cost_checklist(res):
     cl = R.cost_lines(res)
     mw = R.headline(res)["it_mw"]
-    _mk("**End-to-end cost: tick a line to include it in the total.** The total and cost per MW are always the "
-        "sum of the ticked lines (the summary, PDF, exports and narrative use the same total).")
+    _mk("**Tick a line to include it.** Every total in the app, the PDFs, the exports and the narrative is the sum "
+        "of the ticked lines.")
     hdr = st.columns([5, 1.4, 1.4, 4])
     for col, t in zip(hdr, ("Include in total", "$M", "$M / MW", "Source type")):
         col.caption(t)
@@ -101,9 +102,8 @@ def cost_checklist(res):
     c[1].markdown(f"**{cl['total'] / M:,.1f}**")
     c[2].markdown(f"**{cl['per_mw'] / M:,.2f}**")
     c[3].caption(esc_md(f"Every line ticked: {R.money(cl['total_all'])} ({R.money(cl['per_mw_all'])}/MW)"))
-    _cp("Defaults: everything ticked except on-site/bridging power, GPU and server hardware and the AI network "
-        "fabric (often bought separately by the IT owner). 'Include GPU / IT hardware in ROI' (Advanced) still adds "
-        "IT to the payback when those lines are unticked.")
+    _cp("Unticked by default: on-site/bridging power, GPU and server hardware and the AI network fabric (often "
+        "bought by the IT owner). Payback still counts IT hardware unless you switch it off in Advanced.")
 
 
 # ------------------------------------------------------------------ costs
@@ -124,7 +124,8 @@ def tab_costs(res):
         if d["cost"]["changes"]:
             _mk("**Changes from the N+1, 48-hour-fuel basis** (priced from the design counts, +13% soft cost)")
             _df(pd.DataFrame([{"Change": a, "$M": c / M} for a, _, c in d["cost"]["changes"]]))
-        _cp(f"Basis: {d['platform']['label']} facility cost {R.money(d['platform']['rate'])}/MW IT "
+        with st.expander("How the facility cost is built"):
+            _cp(f"Basis: {d['platform']['label']} facility cost {R.money(d['platform']['rate'])}/MW IT "
                    f"(range {R.money(d['platform']['low'])}-{R.money(d['platform']['high'])}) in 2026 dollars, N. Virginia, "
                    f"N+1, including general conditions and 4% contingency; then contingency set to "
                    f"{d['cost']['contingency_pct']:.0%}, location factor {d['cost']['region_factor']:.2f}, owner costs and "
@@ -161,9 +162,9 @@ def tab_costs(res):
 # ------------------------------------------------------------------ future-ready
 def tab_future(res):
     f = R.horizon(res)
-    _mk("Roadmap densities: today's GPU racks 40-60 kW · GB200/GB300 NVL72 about 120-140 kW (shipping) · "
-                "Vera Rubin NVL144 about 190-230 kW (announced, 2H 2026) · Rubin Ultra NVL576 Kyber about 600 kW "
-                "(announced, 2H 2027, 800 VDC) · 1 MW racks (speculative).")
+    _cp("Rack roadmap: 40-60 kW today · GB200/GB300 NVL72 about 120-140 kW (shipping) · Vera Rubin NVL144 about "
+        "190-230 kW (announced, 2H 2026) · Rubin Ultra NVL576 Kyber about 600 kW (announced, 2H 2027, 800 VDC) · "
+        "1 MW racks (speculative).")
     if not f.get("active"):
         _in(f["reason"] + " Choose a 5, 10 or 15-year horizon in the sidebar to price future-proofing.")
         return
@@ -177,7 +178,8 @@ def tab_future(res):
                            marker_color=[GREEN if b else GREY for b in t["Best"]],
                            text=[f"${v:,.0f}M" for v in t["Present cost $M (probability-weighted)"]], textposition="auto"))
     st.plotly_chart(dark(fig, 300, title="Present cost of getting to the target ($M)"), width="stretch")
-    _cp(f"Facility-only comparison (IT hardware and revenue after the switch are the same on every path). "
+    with st.expander("Method and assumptions"):
+        _cp(f"Facility-only comparison (IT hardware and revenue after the switch are the same on every path). "
                f"Later works escalated at {float(res['inputs'].get('escalation') or 0):.0%}/yr and discounted at 8%; "
                f"weighted by a {f['probability']:.0%} probability that the target is deployed at this site. Retrofit "
                "= 1.35x premium + 6% demolition + 4 months lost margin; provisions = pre-installed share now, the rest "
@@ -185,9 +187,9 @@ def tab_future(res):
                "you can change in Advanced.")
     _mk("**Day one vs future target: what changes**")
     _df(R.compare_table(res), num_cols=("Day one", "Future target"))
-    _mk("**Provisions to build in now**")
-    for p in f["provisions"]:
-        _mk(f"- **{p['provision']}**: {p['what']} _{p['when']}._ Why: {p['why']}")
+    _mk(f"**Provisions to build in now ({len(f['provisions'])})**")
+    _df(pd.DataFrame([{"Provision": p["provision"], "What": p["what"], "When": p["when"], "Why": p["why"]}
+                      for p in f["provisions"]]))
     with st.expander("Upgrade cost by item and pre-install share"):
         _df(R.future_rows_table(res), pct_cols=("Pre-install share",))
 
@@ -206,7 +208,7 @@ def tab_design(res):
     pick = st.radio("Design case", list(options), horizontal=True, key="design_case",
                     help="Choose which design the calculations below describe.")
     dz = options[pick]
-    _cp("Step by step: formula, inputs and result, in US units with SI alongside. Standard relations: "
+    _cp("Formula, inputs and result for each step, US units with SI alongside. Standard relations: "
                "I = P / (sqrt3 x V x PF), Q = P / (rho x cp x dT), 1 ton = 3.517 kW, PUE as an annual energy ratio. "
                "Rules: no fixed 'IT x 2' sizing, liquid never captures 100%, air sized only for the residual heat.")
     df = R.design_table(dz)
@@ -276,21 +278,23 @@ def tab_schedule(res):
         f"Critical path: {S['critical_path']}. Notice to proceed about month {S['ntp']:.0f}; build "
         f"{S['build_months']:.1f} months{' (auto from MW)' if S['build_months_auto'] else ''}; energization starts "
         f"about month {S['energization']:.0f}; commissioning about month {S['cx_start']:.0f}.")
-    _cp("Range: shortest published lead times with no weather allowance, to the longest lead times with 10% more "
-        "weather and productivity allowance. Months count from the start (go decision).")
     st.plotly_chart(_gantt(S), width="stretch")
-    _cp(f"Work week {S['overtime_hours']} h (field-work factor {S['overtime_factor']:.2f}), weather "
+    with st.expander("Schedule basis"):
+        _cp("Months count from the start (go decision). Range: shortest published lead times with no weather "
+            "allowance, to the longest lead times with 10% more weather and productivity allowance. "
+            f"Work week {S['overtime_hours']} h (field-work factor {S['overtime_factor']:.2f}), weather "
         f"+{S['weather']:.0%} on exterior work, congestion +{S['congestion']:.0%} on interior work and commissioning. "
         "Overtime does not compress commissioning. Build duration auto-scales with MW when Build months = 0.")
     t = R.schedule_table(res["design"]["schedule"] if res["mode"] == "greenfield" else res["schedule"])
     fig = go.Figure(go.Bar(x=t["Months"], y=t["Driver"], orientation="h",
                            marker_color=[GREEN if c else GREY for c in t["Critical"]],
                            text=[f"{m:.0f} mo" for m in t["Months"]], textposition="auto"))
-    st.plotly_chart(dark(fig, 240, title="What sets the date: completion month if each constraint acted alone"),
+    st.plotly_chart(dark(fig, 240, title="What sets the finish: completion month if each constraint acted alone"),
                     width="stretch")
     _mk("**When to order** (reverse schedule from when each item is needed on site)")
     _df(R.order_by_table(res))
-    _cp(f"Chain per item: specification and RFQ {CX.PROCUREMENT['spec_rfq']} wk + bids {CX.PROCUREMENT['bids']} wk + "
+    with st.expander("How the order months are worked out"):
+        _cp(f"Chain per item: specification and RFQ {CX.PROCUREMENT['spec_rfq']} wk + bids {CX.PROCUREMENT['bids']} wk + "
         f"award/PO {CX.PROCUREMENT['po']} wk + submittals {CX.SUBMITTAL_WEEKS} wk + quoted lead + "
         f"{CX.PROCUREMENT['staging']} wk staging, plus a {CX.PROCUREMENT['buffer_pct']:.0%} buffer on submittals and lead. "
         "'Order before NTP' means the PO must be placed before construction starts (owner-direct purchase or an "
@@ -305,15 +309,13 @@ def tab_schedule(res):
         _df(R.delays_table())
     with st.expander("Long-lead equipment, 2026 ranges"):
         _df(R.long_lead_table())
-    for r_ in res["warnings"]:
-        _mk(f"- {r_}")
 
 
 # ------------------------------------------------------------------ build & commission
 def tab_build(res):
     cx = res["cx"]
     T = R.cx_tables(res)
-    st.error(esc_md(CX.HARD_STOP))
+    st.warning(esc_md("🛑 " + CX.HARD_STOP))
     _mk("**Commissioning levels L1-L5**")
     _df(T["cx_levels"])
     lb = cx["load_banks"]
@@ -338,7 +340,7 @@ def tab_build(res):
     c1, c2, c3 = st.columns(3)
     c1.download_button("⬇ Checklists (PDF)", R.checklist_pdf(res), file_name="rackready_build_checklists.pdf",
                        mime="application/pdf", width="stretch", key="dl_cx_pdf",
-                       help="Multi-page field checklist: hard stop, order-by dates, L1-L5, IST, feeds, QA lists.")
+                       help="Multi-page field checklist: hard stop, order-by months, L1-L5, IST, feeds, QA lists.")
     md = "\n\n".join([f"# Build & commission: {res['inputs']['project_name']}", CX.HARD_STOP] +
                        [f"## {k.replace('_', ' ').title()}\n\n{v.to_markdown(index=False)}" for k, v in T.items()])
     c2.download_button("⬇ Build & commission (Markdown)", md, file_name="rackready_build_commission.md",
@@ -387,7 +389,7 @@ def tab_assumptions(res):
             ("Cooling rule", "Direct-to-chip liquid above 45 kW/rack", "Air about 30 kW, rear-door about 45 kW practical limits")]
     _df(pd.DataFrame(rows, columns=["Item", "Value", "Basis"]))
     _mk("**Estimate accuracy**")
-    _cp(CX.ESTIMATE_LABEL)
+    _cp("±30–50%: " + CX.ESTIMATE_LABEL.split(": ", 1)[1])
     _mk("**Stage gates 0-7**")
     _df(R.cx_tables(res)["stage_gates"])
     _mk("**Specification quick reference** (current codes and standards)")
@@ -396,15 +398,12 @@ def tab_assumptions(res):
         with st.expander(k):
             for x in items:
                 _mk(f"- {x}")
-    with st.expander("Glossary"):
-        for k, v in CX.GLOSSARY.items():
-            _mk(f"- **{k}**: {v}")
     _mk("**GPU platforms**")
     _df(R.platform_table())
     _mk("**Public sources**")
     for a, b in SOURCES:
         _mk(f"- **{a}**: {b}")
-    _cp(f"{E.DISCLAIMER} {G.LEGAL} Full list of numbers, ranges and sources: docs/VERIFICATION.md.")
+    _cp("Every number, range and source link: docs/VERIFICATION.md in the repository.")
 
 
 # ------------------------------------------------------------------ codes & procurement

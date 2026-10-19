@@ -20,7 +20,7 @@ WEEKS_PER_MONTH = 4.345
 
 # --------------------------------------------------------------------------- estimate accuracy
 # Plain-language label shown to users. The classification behind it is documented in docs/VERIFICATION.md.
-ESTIMATE_LABEL = ("Early budget estimate (±30–50%): built from per-MW benchmarks and design quantities before any "
+ESTIMATE_LABEL = ("Early budget estimate (±30–50%), not a bid: built from per-MW benchmarks and design quantities before any "
                   "drawings exist, so the final cost can land well above or below it.")
 
 # --------------------------------------------------------------------------- long-lead equipment
@@ -41,7 +41,7 @@ LEAD_TIMES = [
     ("ups", "UPS modules and batteries", 30, 60, 44, "2026 procurement surveys: 30-48 weeks (500-1,500 kVA), 40-60 modular"),
     ("chillers", "Chillers / dry or adiabatic coolers", 40, 70, 55, "2026 consultant survey: chillers 40-70 weeks"),
     ("cdus", "Coolant distribution units (CDUs)", 30, 50, 40, "2026 consultant survey: 30-50 weeks"),
-    ("busway", "High-amp busway and tap-off units", 16, 40, 26, "2026 manufacturer schedules: about 6-40 weeks; tap-offs often longer"),
+    ("busway", "High-amp busway and tap-off units", 16, 40, 26, "2026 manufacturer schedules: about 6-40 weeks; high-amp runs and tap-offs at the long end (16-40 used)"),
     ("fire", "Fire pumps and pre-action valve assemblies", 20, 36, 28, "Typical 2026 quotes: fire pumps 20-36 weeks, valves 14-24"),
     ("fiber", "Telecom fiber laterals and carrier services", 26, 78, 52, "Typical carrier lateral builds 6-18 months; order 18+ months ahead"),
 ]
@@ -224,7 +224,7 @@ def schedule(*, it_mw: float, greenfield: bool, design_months: float, build_mont
     crit = max(drivers, key=drivers.get)
     for x in items:
         x["float_note"] = (f"{x['rfq']:,.1f} months of float before the RFQ must go out" if x["rfq"] >= 0 else
-                           f"{-x['rfq']:,.1f} months short (needs a slot reservation or a later need date)")
+                           f"{-x['rfq']:,.1f} months short (needs a slot reservation or a later need month)")
     return {"phases": phases, "items": items, "ntp": ntp, "energization": energ, "cx_start": cx, "sc": sc,
             "final": sc + 2.0, "build_months": B, "build_months_auto": not build_months, "design_months": dm,
             "overtime_hours": int(overtime_hours or 40), "overtime_factor": ot, "weather": float(weather or 0),
@@ -521,7 +521,7 @@ def risk_register(*, greenfield: bool, kw: float, d2c: bool, it_mw: float, month
         "Early utility load study; phased energization; flexible (curtailable) load agreement; on-site bridging power",
         "Owner", "Pre-construction", 6, 24, greenfield or needs_new_service,
         "Greenfield or new service" if greenfield or needs_new_service else "Existing service is enough")
-    add("Long-lead equipment", "Order-by date before NTP or less than 8 weeks of float",
+    add("Long-lead equipment", "Order-by month before NTP or less than 8 weeks of float",
         "Early equipment reservations with slot deposits before design is complete; frame agreements; factory inspection",
         "Owner / contractor", "Pre-construction to build", 3, 9, True,
         ("Late now: " + ", ".join(late)) if late else ("Order before NTP: " + ", ".join(pre)) if pre else "All orders after NTP")

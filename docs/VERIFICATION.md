@@ -141,7 +141,7 @@ Cooling rule: air tops out near 30 kW/rack and rear-door heat exchangers near 45
 the model always uses direct-to-chip liquid cooling. Immersion is a niche option and is not modelled.
 
 
-### Round-2 calculations and the codes they follow
+### Detailed calculations and the codes they follow
 
 | Calculation | Formula / rule | 100 MW GB300 result | Code / basis |
 |---|---|---|---|
@@ -216,7 +216,7 @@ the model always uses direct-to-chip liquid cooling. Immersion is a niche option
 - US EPA Technology Transitions rule (low-GWP refrigerants for IT cooling, 2027).
 - Public GPU rental price trackers (October 2026).
 
-## 9. End-to-end cost lines and the "Include in total" checklist (round 3)
+## 9. End-to-end cost lines and the "Include in total" checklist
 
 The total and the cost per MW are always the sum of the ticked lines (tested with random tick sets on every preset,
 greenfield and fit-out). The same total is used in the summary cards, the Costs tab, the Nemotron payload, the
@@ -306,7 +306,7 @@ and performance assumptions: https://www.eia.gov/outlooks/aeo/assumptions/pdf/el
 1.5% of construction: https://www.datacenterknowledge.com/business/getting-the-most-out-of-commissioning-through-best-practices .
 AI cluster networking about 10-15% of cluster cost: https://www.amcompute.com/blog/gpu-cluster-networking .
 
-## US procurement: lead times, supply, tariffs and suppliers
+## 12. US procurement: lead times, supply, tariffs and suppliers
 
 This is the only section of the project that names companies. Listed alphabetically for reference; not exhaustive,
 not an endorsement; no affiliation. Each supplier has one public source showing it makes that equipment for data
@@ -367,3 +367,16 @@ amendment of 1 Jun 2026: https://www.whitehouse.gov/presidential-actions/2026/06
 checked): a cooling maker whose US production starts only in 2027; a CDU product page that could not be reached; a
 multinational with no category-specific US source; two makers whose sources covered other products (for example
 1-10 MVA units, not LPTs); US makers of optical transceivers; guessed product URLs that did not resolve.
+
+## 13. Final QA checks (October 2026)
+
+| Check | Result | Enforced by |
+|---|---|---|
+| Every project type x platform (incl. custom) x redundancy x horizon (2 x 9 x 4 x 4 = 288 runs) plus 150 seeded random edge cases (0.5-2,000 MW, 1-50,000 racks, 5-1,500 kW/rack, extreme prices, schedule factors and random ticks) | No exceptions, no NaN or infinite values, no negative cost line, ticked lines = total within $1, schedule range brackets the central case, no negative phase, one-page PDF always 1 page, Markdown, checklist PDF and narrative build | `tests/test_fuzz.py` |
+| Tiny sites (1-2 racks) at redundancy N | A redundancy reduction is capped at half of its construction division, so dropping one 3 MW generator from a site that needs one can no longer make a division negative | `tests/test_fuzz.py` |
+| Rounding | $M shown to 1 decimal and $M per MW to 2 decimals in the app, PDF and Markdown (e.g. facility 1,397.3 and 13.97), so the per-MW column adds up to the per-MW total | `report._md`, `ui_views._df` |
+| Units | Land cost shown as money ($65.5M), not "65,482,510 $"; key design line omits "(0 CDUs)" on air or rear-door designs | `report.val`, `report.key_design_line` |
+| One verdict wording | "Verdict" on the first screen, PDF, Markdown and narrative; payback shown once; the narrative uses the price-change input instead of a fixed value | `tests/test_app.py`, `tests/test_round3.py` |
+| Disclaimer | Once on the first screen, once in the footer, in the Terms of use and in every export; no repeated warnings | `tests/test_app.py::test_first_screen_terms_and_no_nagging` |
+| Terms of use | TERMS.md identical to the in-app text and covers every required point | `tests/test_terms.py` |
+| Preset totals after QA | 100 MW GB300: $2,328.2M ($23.28M/MW; $6,076.2M all lines) · 10 MW H200: $188.1M ($18.81M/MW; $561.6M) · fit-out: $358.2M ($13.27M/MW; $1,369.9M) | `tests/test_round3.py` |

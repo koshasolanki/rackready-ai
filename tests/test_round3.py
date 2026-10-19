@@ -142,3 +142,16 @@ def test_official_event_name():
               "docs/VERIFICATION.md"):
         assert "Build Week" not in open(os.path.join(root, f), encoding="utf-8").read(), f
     assert "Nebius x NVIDIA Global AI Hackathon" in open(os.path.join(root, "app.py"), encoding="utf-8").read()
+
+
+def test_preset_totals_pinned():
+    want = {"100 MW AI campus (greenfield, GB300 NVL72)": (2328.2, 6076.2),
+            "10 MW edge AI hall (greenfield, H200 HGX)": (188.1, 561.6),
+            "Existing-hall fit-out (200 racks, 15 kW -> GB300)": (358.2, 1369.9)}
+    for name, (total, total_all) in want.items():
+        h = R.headline(E.run_model(E.PRESETS[name]))
+        assert round(h["total"] / 1e6, 1) == total and round(h["total_all"] / 1e6, 1) == total_all, name
+
+
+def test_units_and_design_line():
+    r = E.run_model()

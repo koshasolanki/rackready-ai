@@ -14,7 +14,7 @@ three ways: build for today and retrofit later / build today with pre-installed 
 build the full future design on day one.
 
 Rule for every design: above 45 kW/rack the cooling is direct-to-chip (D2C) liquid, set
-automatically. All figures are indicative planning estimates, not a bid.
+automatically. All figures are early budget estimates (±30-50%), not a bid.
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ from design import AIR, COOLING_TYPES, D2C, D2C_AUTO_KW, HYBRID, effective_cooli
 
 D2C_NOTE = "D2C auto-selected above 45 kW/rack"
 DISCLAIMER = "Early budget estimate (±30–50%), not a bid."
-ESTIMATE_NOTE = ("Early budget estimate (±30–50%): built from per-MW benchmarks and design quantities before any "
+ESTIMATE_NOTE = ("Early budget estimate (±30–50%), not a bid: built from per-MW benchmarks and design quantities before any "
                  "drawings exist, so the final cost can land well above or below it.")
 HOURS = 8760
 
@@ -285,9 +285,15 @@ def greenfield_cost(p: dict, it_mw: float, design: dict, i: dict, include_land=T
         changes.append((f"Fuel storage 48 h -> {fh:.0f} h", "22", PL.FUEL_COST_PER_MW_HOUR * it_mw * (fh - 48) * soft))
     cont = float(i.get("contingency") if i.get("contingency") is not None else PL.BASE_CONTINGENCY)
     cont_adj = base / PL.GC_AND_CONTINGENCY_DIVISOR * (cont - PL.BASE_CONTINGENCY)
+    capped = []
     for name, d, amt in changes:
         key = next(k for k in div if k.startswith(d))
+        # a reduction cannot remove more than half of its division (tiny sites: one fewer 3 MW unit
+        # would otherwise make the division negative)
+        amt = max(amt, -0.5 * div[key])
         div[key] += amt
+        capped.append((name, d, amt))
+    changes = capped
     hard = sum(div.values())
     region_adj = (hard + cont_adj) * (reg - 1)
     facility = hard + cont_adj + region_adj
@@ -689,7 +695,7 @@ def _warnings(res):
     if res["mode"] == "greenfield":
         if float(i.get("months_to_power") or 36) < 18:
             w.append("Months to utility power below 18 is optimistic for new large loads; 2026 market reports show average "
-                     "grid-connection waits above 4 years in primary markets. Use the utility's committed date.")
+                     "grid-connection waits above 4 years in primary markets. Use the utility's committed timing.")
         if res["design"]["design"]["v"]["service_mva"] > 300:
             w.append("Utility service above 300 MVA usually needs a dedicated transmission-level substation and "
                      "multi-year interconnection studies.")
@@ -760,18 +766,17 @@ def recommendation(res):
     if res["mode"] == "greenfield":
         d, f = res["design"], res["future"]
         pb = d["payback"]
-        econ = (f"Payback including IT is about {pb:.1f} years from ready-for-service." if pb is not None
-                else "The build does not pay back within the analysis period.")
+        econ = "" if pb is not None else " It does not pay back within the analysis period."
         if f["active"]:
-            return {"headline": f["best"], "detail": f"For the {_hz(f['horizon'])} horizon ({f['target_kw']:,.0f} kW/rack "
-                    f"by year {f['year']}), this path has the lowest present cost. {econ}"}
-        return {"headline": "Build as designed", "detail": f"{f['reason']} {econ}"}
+            return {"headline": f["best"], "detail": f"Lowest present cost for the {_hz(f['horizon'])} horizon "
+                    f"({f['target_kw']:,.0f} kW/rack by year {f['year']}).{econ}"}
+        return {"headline": "Build as designed", "detail": f"{f['reason']}{econ}"}
     up, f = res["upgrade"], res["future_paths"]
     head = up["recommended"]
-    det = (f"Fitting out for {res['platform']['label']} now vs keeping {res['current']['kw']:.0f} kW racks and "
-           f"retrofitting in year {up['year']}: NPV {_money(up['npv_a'])} vs {_money(up['npv_b'])}.")
+    det = (f"NPV {_money(up['npv_a'])} vs {_money(up['npv_b'])} for keeping {res['current']['kw']:.0f} kW racks and "
+           f"retrofitting in year {up['year']}.")
     if f["active"]:
-        det += f" Beyond that, for the {_hz(f['horizon'])} horizon: {f['best'].lower()}."
+        det += f" For the {_hz(f['horizon'])} horizon: {f['best'].lower()}."
     return {"headline": head, "detail": det}
 
 

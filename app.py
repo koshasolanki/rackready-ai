@@ -117,7 +117,7 @@ def cooling_widget(container, label, kw, key, help_):
 inputs: dict = {}
 with st.sidebar:
     st.markdown("### ⚡ RackReady AI")
-    st.caption("Early budget estimate (±30–50%), not a bid. Results update as you type.")
+    st.caption("Results update as you type.")
     st.selectbox("Start from a preset", list(E.PRESETS), key="w_preset", on_change=_on_preset,
                  help="Loads a typical project. You can then change any input.")
     inputs["project_type"] = st.radio(
@@ -204,7 +204,8 @@ with st.sidebar:
                                          help="Powered-land price. Indicative defaults by location."))
             inputs["land_per_acre"] = land or None
             inputs["months_to_power"] = int(st.number_input("Months to utility power", 6, 120, key="w_mtp",
-                                                            help="Utility's committed energization date."))
+                                                            help="Months from start until the utility can energize the site "
+                                                                 "(use the utility's committed timing)."))
             c1, c2 = st.columns(2)
             inputs["design_months"] = int(c1.number_input("Design months", 2, 36, key="w_dm",
                                                           help="Design and permits."))
@@ -286,17 +287,16 @@ except Exception as e:  # clear error, never a stack trace
 
 h = R.headline(res)
 st.markdown("# ⚡ RackReady AI")
-st.markdown('<div class="rr-sub">Cost and design model for high-density AI data centers. '
-            '<b>Built for Nebius x NVIDIA Global AI Hackathon.</b></div>', unsafe_allow_html=True)
+st.markdown('<div class="rr-sub">Design, price and schedule an AI data center in seconds, '
+            'from today\'s 135 kW racks to tomorrow\'s 600 kW.</div>', unsafe_allow_html=True)
 badges = [("🏗️ Greenfield new build" if gf else "🏢 Existing building fit-out"), h["platform"],
           f"{h['kw']:,.0f} kW/rack", f"{h['racks']:,} racks", f"{h['it_mw']:,.1f} MW IT", h["cooling"],
           inputs["region"], E.RESILIENCE[inputs["resilience"]].split(" (")[0],
           f"Horizon: {inputs['horizon']}"]
 st.markdown("".join(f'<span class="rr-badge">{b}</span>' for b in badges), unsafe_allow_html=True)
-st.caption(f"{E.DISCLAIMER} 2026 US dollars. {E.D2C_NOTE}.")
-for w in res["warnings"]:
-    st.warning(w)
 V.summary(res)
+if res["warnings"]:
+    st.warning(esc_md("\n".join(f"- {w}" for w in res["warnings"])))
 
 # ----------------------------------------------------------------- narrative (cached per input)
 key_fp = hashlib.sha1((api_key or "").encode()).hexdigest()[:8]
@@ -332,18 +332,16 @@ def render_narrative():
         except Exception as e:  # never break the demo
             st.warning(f"AI narrative unavailable ({type(e).__name__}). Showing the built-in narrative instead.")
             text = None
-    elif use_ai:
-        st.info("No NEBIUS_API_KEY found, so this is the built-in rule-based narrative. "
-                "Add a key under 🤖 AI narrative settings for the Nemotron narrative.")
     if text is None:
         text = fallback_narrative(res)
-        src = "Rule-based narrative (offline fallback)"
+        src = ("Rule-based narrative (add a Nebius key under 🤖 AI narrative settings for Nemotron)"
+               if use_ai and not api_key else "Rule-based narrative")
         st.caption(src)
         st.markdown(esc_md(text))
     cache[key_hash] = (src, text)
 
 
-with st.expander("📝 Narrative: what this means", expanded=False):
+with st.expander("📝 Narrative: what this means for your project", expanded=False):
     render_narrative()
 narrative_src, narrative = cache.get(key_hash, ("", ""))
 
@@ -370,54 +368,43 @@ d3.download_button("⬇ Tables (CSV zip)", zbuf.getvalue(), file_name="rackready
                    width="stretch", help="All tables for Excel.")
 
 # ----------------------------------------------------------------- tabs
-tabs = st.tabs(["💰 Costs", "🔮 Future-ready", "📐 Design calculations", "📈 Operations & ROI",
-                "🗓️ Schedule & risks", "🏗️ Build & commission", "📜 Codes & procurement",
-                "📚 Assumptions & sources"])
-with tabs[0]:
-    V.tab_costs(res)
-with tabs[1]:
-    V.tab_future(res)
-with tabs[2]:
-    V.tab_design(res)
-with tabs[3]:
-    V.tab_ops(res)
-with tabs[4]:
-    V.tab_schedule(res)
-with tabs[5]:
-    V.tab_build(res)
-with tabs[6]:
-    V.tab_codes(res)
-with tabs[7]:
-    V.tab_assumptions(res)
+# Flow: what it costs -> what to build in now -> how it is designed -> when it is ready -> what to buy and
+# which codes -> how to commission it -> how it pays back -> where the numbers come from.
+TABS = [("💰 Costs", V.tab_costs), ("🔮 Future-ready", V.tab_future), ("📐 Design calculations", V.tab_design),
+        ("🗓️ Schedule & risks", V.tab_schedule), ("📜 Codes & procurement", V.tab_codes),
+        ("🏗️ Build & commission", V.tab_build), ("📈 Operations & ROI", V.tab_ops),
+        ("📚 Assumptions & sources", V.tab_assumptions)]
+for tab, (_, view) in zip(st.tabs([t for t, _ in TABS]), TABS):
+    with tab:
+        view(res)
 
+st.divider()
 with st.expander("📘 How it works"):
     st.markdown("""
-**Two project types.** *Greenfield* is one new campus built from scratch: pick a GPU platform, size it in MW or
-racks, and the model designs and prices it. *Existing building fit-out* compares keeping today's racks with a
-future-ready fit-out in the same hall, and with retrofitting later.
-
-**Design first, then cost.** The model sizes the utility service, transformers, generators, UPS, busway,
-cooling, CDUs, coolant flows, floor loading, water and land with standard engineering formulas (see Design
-calculations), then prices the build from a per-MW cost basis for the platform, adjusted for redundancy,
-contingency, location, owner costs and escalation.
-
-**Direct-to-chip liquid above 45 kW/rack.** Air tops out near 30 kW/rack and rear-door coolers near 45 kW.
-Above 45 kW/rack every design uses direct-to-chip liquid cooling, set automatically.
-
-**Future-proof horizon.** Choose 5, 10 or 15 years (Vera Rubin, Kyber, 1 MW-class racks). The model prices
-retrofit later vs provisions now vs full future build on day one and recommends the lowest present cost.
-
-**End-to-end cost checklist.** The Costs tab lists 13 cost lines from land to spares. Tick a line to include it;
-the total and cost per MW are always the sum of the ticked lines, everywhere in the app and the downloads.
-
-**AI.** Every number comes from the deterministic model. NVIDIA Nemotron on Nebius Token Factory writes the
-narrative from the model's output; without a key a rule-based narrative is shown.
+- **Design first, then cost.** Standard engineering formulas size the power, cooling, fire, water, network and
+  land; a per-MW cost basis for the platform prices the build (redundancy, location, contingency, escalation).
+- **Greenfield or fit-out.** Greenfield is one new campus from scratch. Fit-out compares today's racks with a
+  future-ready fit-out of the same hall and with retrofitting later.
+- **Liquid above 45 kW/rack.** Air tops out near 30 kW/rack and rear-door coolers near 45 kW; above that every
+  design uses direct-to-chip liquid cooling.
+- **Future-ready.** For a 5, 10 or 15-year horizon it prices retrofit later vs provisions now vs full future
+  build and picks the lowest present cost.
+- **One total.** The total is the sum of the ticked cost lines, everywhere: cards, tabs, PDFs, exports, narrative.
+- **AI.** Every number comes from the deterministic model; NVIDIA Nemotron on Nebius Token Factory writes the
+  narrative, with a rule-based fallback when no key is set.
 """)
-    st.markdown("**Glossary: how an AI data center works**")
+    st.markdown("**Glossary**")
     for term, text in G.HOW_IT_WORKS:
         st.markdown(esc_md(f"- **{term}**: {text}"))
-    st.markdown("**Where $100 of AI data center capex goes (illustrative)**")
-    st.markdown(esc_md(" · ".join(f"{a} ${b:g}" for a, b in G.CAPEX_SPLIT)))
+    for term, text in CX.GLOSSARY.items():
+        if term not in dict(G.HOW_IT_WORKS):
+            st.markdown(esc_md(f"- **{term}**: {text}"))
+    st.markdown(esc_md("**Where $100 of AI data center capex goes (illustrative):** "
+                       + " · ".join(f"{a} ${b:g}" for a, b in G.CAPEX_SPLIT)))
     st.caption(esc_md(G.CAPEX_NOTE))
-st.caption(esc_md(f"{E.DISCLAIMER} {G.LEGAL}"))
-st.caption(esc_md(f"RackReady AI · Built for Nebius x NVIDIA Global AI Hackathon · {G.TRADEMARKS}"))
+with st.expander(f"📄 {G.TERMS_TITLE}"):
+    for head, text in G.TERMS:
+        st.markdown(esc_md(f"**{head}.** {text}"))
+st.caption(esc_md(f"{E.DISCLAIMER} {G.LEGAL} See {G.TERMS_TITLE} above."))
+st.caption(esc_md(f"RackReady AI · Built for the Nebius x NVIDIA Global AI Hackathon · MIT License · "
+                  f"{G.TRADEMARKS}"))

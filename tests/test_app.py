@@ -12,8 +12,8 @@ import engine as E  # noqa: E402
 import platforms as PL  # noqa: E402
 
 APP = os.path.join(ROOT, "app.py")
-TABS = ["Costs", "Future-ready", "Design calculations", "Operations & ROI", "Schedule & risks", "Build & commission",
-        "Codes & procurement", "Assumptions & sources"]
+TABS = ["Costs", "Future-ready", "Design calculations", "Schedule & risks", "Codes & procurement",
+        "Build & commission", "Operations & ROI", "Assumptions & sources"]
 
 
 @pytest.fixture(autouse=True)
@@ -41,8 +41,7 @@ def _ok(at):
     assert not at.exception, [e.message for e in at.exception]
     assert len(at.metric) >= 4
     labels = [t.label for t in at.tabs]
-    for t in TABS:
-        assert any(t in lbl for lbl in labels), (t, labels)
+    assert len(labels) == len(TABS) and all(t in lbl for t, lbl in zip(TABS, labels)), labels
     body = " ".join(m.value for m in at.markdown) + " ".join(c.value for c in at.caption)
     assert "not a bid" in body
     for word in ("workbook", "Method A", "RIGHT", "Class 5", "screening", "oncept-level"):
@@ -54,7 +53,7 @@ def _ok(at):
 def test_presets(preset):
     at = _run(w_preset=preset)
     _ok(at)
-    assert any("Recommendation" in s.value for s in at.success)
+    assert any("Verdict" in s.value for s in at.success)
 
 
 @pytest.mark.parametrize("ptype", E.PROJECT_TYPES)
@@ -98,7 +97,7 @@ def test_build_tab_and_estimate_wording():
     at = _run()
     body = _ok(at)
     assert "Early budget estimate (±30–50%)" in body
-    assert any("Hard stop" in e.value for e in at.error)
+    assert any("Hard stop" in e.value for e in at.warning)
     assert "When to order" in body and "Commissioning levels L1-L5" in body
     assert "months from start" in body and "How to avoid delays" in body
     assert "Codes and standards to follow" in body and "Listed alphabetically for reference" in " ".join(
@@ -122,3 +121,16 @@ def test_schedule_factors_and_auto_build():
     _ok(at)
     at.selectbox(key="w_ot").set_value(60).run()
     _ok(at)
+
+
+def test_first_screen_terms_and_no_nagging():
+    at = _run()
+    _ok(at)
+    exp = [e.label for e in at.expander]
+    assert any("Terms of use" in x for x in exp) and any("How it works" in x for x in exp)
+    captions = " ".join(c.value for c in at.caption)
+    # the disclaimer appears once on the first screen and once in the footer, never more
+    assert captions.count("not a bid") == 2, captions.count("not a bid")
+    assert "MIT License" in captions and "See Terms of use" in captions
+    assert not [i.value for i in at.info if "NEBIUS_API_KEY" in i.value]
+    assert len(at.warning) <= 2  # one compact warnings block + the build hard stop

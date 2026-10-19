@@ -1,7 +1,7 @@
 """
 RackReady AI - GPU platforms and the facility cost basis.
 
-All money is 2026 US dollars, indicative planning level (not a bid).
+All money is 2026 US dollars, early budget estimate level (not a bid).
 
 Facility cost basis ("rate", $ per MW of IT load): a calibrated benchmark for a US greenfield AI
 facility, open-shop labour, N+1 block redundancy, including the general contractor's fee (about 9%)

@@ -251,7 +251,8 @@ def test_no_internal_references(pre):
     text = _public_text(r)
     m = BANNED.search(text.replace("NVL72", ""))
     assert m is None, m and text[max(0, m.start() - 80): m.end() + 80]
-    assert E.DISCLAIMER in R.markdown_report(r)
+    md = R.markdown_report(r)
+    assert "Early budget estimate (±30–50%), not a bid" in md and "TERMS.md" in md
 
 
 @pytest.mark.parametrize("pre", list(E.PRESETS))

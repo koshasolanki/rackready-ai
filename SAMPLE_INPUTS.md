@@ -20,19 +20,19 @@ $19.8M/MW). With every line ticked (adds on-site/bridging power $284.0M, GPU har
 Schedule: notice to proceed about month 10, build 24 months (auto), **ready for IT about 41–51 months from start**
 (typical 43; the large power transformers are the critical path; RFQ now). MV switchgear and generators must be ordered before notice to proceed.
 Fire: 542.5 gpm demand, 750 gpm pump, 32,550 gal; clean agent 2,047 lb. Future-ready paths (present cost): retrofit
-later $1.23B, **provisions now $1.02B** (recommended), full future build $1.24B.
+later $1.23B, **provisions now $1.02B** (the verdict), full future build $1.24B.
 
 ## Preset 2: 10 MW edge AI hall, greenfield, H200 HGX, Dallas
 42 kW/rack, so you can choose the cooling: rear-door hybrid. 239 racks, PUE **1.35**, WUE **2.28 L/kWh** (towers),
 18 MVA, 6 generators, 3,002 tons. Total **$188.1M** (**$18.8M/MW**; every line ticked $561.6M), IT **$340.7M**,
-payback **6.7 years**. Build auto 15.8 months; ready for IT about 26–38 months from start (generators are the critical
-path).
+payback **6.7 years**. Build auto 15.8 months; ready for IT about 26–38 months from start (power-chain long-lead
+equipment is the critical path).
 5-year horizon (230 kW): provisions now **$44M** vs retrofit later $65M vs full build $49M.
 
 ## Preset 3: existing-hall fit-out, 200 racks, 15 kW air to GB300 NVL72
 Future-ready fit-out total **$358.2M** (27 MW IT, **$13.3M/MW**, D2C auto; every line ticked $1.37B). On a
 like-for-like construction basis it is $352.1M vs $39.0M to fit out for today's 3 MW; building for today and
-retrofitting in year 3 costs **$556.8M** including 4 months of downtime, so the model recommends **fit out
+retrofitting in year 3 costs **$556.8M** including 4 months of downtime, so the verdict is **fit out
 future-ready now** (NPV $1.43B vs $0.46B). The new 42 MVA service needs large power transformers (about 128 weeks),
 which set ready for IT at about 33–48 months from start.
 
@@ -45,13 +45,13 @@ which set ready for IT at about 33–48 months from start.
 | Colo upgrade | Fit-out, 100 racks, 12 kW to B200 HGX, Dallas | $15.1M current vs $72.7M future-ready like-for-like ($74.0M total, $13.0M/MW); fit out future-ready now |
 
 ## 60-second demo script
-1. Open the default preset: point at the four summary cards and the recommendation.
-2. **Design calculations**: scroll power, cooling and floor loading; switch to "Future target (600 kW/rack)".
-3. **Future-ready**: the three paths and the provisions list, each with its reason.
-4. **Costs**: tick GPU hardware in the cost checklist and watch the total and cost per MW change everywhere.
-5. **Schedule & risks**: the Gantt, when to order (transformers: order now), how to avoid delays and the risk register.
-6. **Codes & procurement**: latest code editions, Confirm locally, US lead times and verified suppliers.
-7. **Build & commission**: the liquid-loop hard stop, L1-L5, IST scenarios; download the checklist PDF.
-8. Change the platform to Custom 40 kW, then 50 kW: the cooling locks to D2C above 45 kW.
-9. Switch the preset to the existing-hall fit-out: current vs future-ready vs retrofit later.
-10. Download the one-page PDF. Open the narrative written by NVIDIA Nemotron on Nebius Token Factory.
+1. Default preset: the four cards (total, cost per MW, payback, ready-for-IT months) and the one-line verdict.
+2. **Costs**: tick GPU hardware and watch the total and cost per MW change everywhere, PDFs included.
+3. **Future-ready**: retrofit later vs provisions now vs full build, and the provisions to build in.
+4. **Design calculations**: power, cooling and floor loading; switch to "Future target (600 kW/rack)".
+5. **Schedule & risks**: the Gantt, what sets the finish and when to order (transformers: send the RFQ now).
+6. **Codes & procurement**: latest code editions, Confirm locally and US lead times.
+7. **Build & commission**: the liquid-loop hard stop, L1-L5 and IST scenarios; download the checklist PDF.
+8. Sidebar: Custom density 40 kW, then 50 kW: the cooling locks to D2C above 45 kW.
+9. Preset: existing-hall fit-out: current vs future-ready vs retrofit later.
+10. Open the narrative written by NVIDIA Nemotron on Nebius Token Factory and download the one-page PDF.

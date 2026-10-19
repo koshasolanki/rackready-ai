@@ -40,6 +40,8 @@ def val(step) -> str:
     v, u = step["value"], step["unit"]
     if isinstance(v, str):
         return v
+    if u == "$":
+        return money(v)
     if u in ("units", "racks", "units per row", "taps", "modules", "CDUs", "gal", "sf", "A"):
         d = 0
     elif u in ("", "x"):
@@ -86,8 +88,9 @@ def headline(res) -> dict:
 def key_design_line(res) -> str:
     v = main_design(res)["v"]
     return (f"{v['service_mva']:,.0f} MVA utility service · {v['gens']:,.0f} x 3 MW generators · "
-            f"{v['ups_modules']:,.0f} x 1 MW UPS modules · {v['cool_tons']:,.0f} tons cooling "
-            f"({v['cdus']:,.0f} CDUs) · {v['gross_sf']:,.0f} sf building · PUE {v['pue']:.2f}")
+            f"{v['ups_modules']:,.0f} x 1 MW UPS modules · {v['cool_tons']:,.0f} tons cooling"
+            + (f" ({v['cdus']:,.0f} CDUs)" if v.get("cdus") else "") +
+            f" · {v['gross_sf']:,.0f} sf building · PUE {v['pue']:.2f}")
 
 
 def _land(i):
@@ -305,11 +308,24 @@ def _md(df, money_cols=(), pct_cols=(), num_cols=()):
     for c in d.columns:
         if c in pct_cols:
             d[c] = d[c].map(lambda v: f"{v:.0%}")
+        elif "per MW" in str(c) and "$M" in str(c):
+            d[c] = d[c].map(lambda v: f"{v:,.2f}" if isinstance(v, (int, float)) else v)
         elif c in money_cols or "$M" in str(c):
             d[c] = d[c].map(lambda v: f"{v:,.1f}" if isinstance(v, (int, float)) else v)
         elif c in num_cols:
             d[c] = d[c].map(lambda v: f"{v:,.0f}" if isinstance(v, (int, float)) else v)
-    return d.to_markdown(index=False)
+        else:
+            d[c] = d[c].map(_num)
+    return d.to_markdown(index=False, disable_numparse=True)
+
+
+def _num(v):
+    """Same number style as the app tables: whole numbers with separators, else 2 decimals."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return "" if v is None else v
+    if v != v:
+        return ""
+    return f"{v:,.0f}" if abs(v) >= 100 or float(v).is_integer() else f"{v:,.2f}"
 
 
 def markdown_report(res, narrative: str = "", narrative_src: str = "") -> str:
@@ -325,7 +341,7 @@ def markdown_report(res, narrative: str = "", narrative_src: str = "") -> str:
            "- **Not in the total (unticked):** " + (", ".join(h["excluded"]) if h["excluded"] else "none"),
            f"- **Payback (incl. IT, from ready-for-service):** {yrs(h['payback'])}; NPV {money(h['npv'])}",
            f"- **Ready for IT:** {h['rfs_text']}",
-           f"- **Recommendation:** {rec['headline']}. {rec['detail']}",
+           f"- **Verdict:** {rec['headline']}. {rec['detail']}",
            f"- **Key design:** {key_design_line(res)}"]
     if res["warnings"]:
         out.append("**Warnings**\n\n" + "\n".join(f"- {w}" for w in res["warnings"]))
@@ -385,13 +401,12 @@ def markdown_report(res, narrative: str = "", narrative_src: str = "") -> str:
             "## US procurement (long-lead packages)", PR.TARIFF_2026, procurement_table().to_markdown(index=False),
             "### Verified suppliers and sources", PR.DISCLAIMER,
             supplier_table().drop(columns=["URL"]).to_markdown(index=False),
-            "## How it works", how_it_works_table().to_markdown(index=False),
-            "## Estimate accuracy", CX.ESTIMATE_LABEL]
+            "## How it works", how_it_works_table().to_markdown(index=False)]
     out += ["## Benchmark checks", _md(checks_table(res))]
     if narrative:
         out += ["## Narrative", f"_{narrative_src}_", narrative]
-    out.append(f"_{E.DISCLAIMER} {G.LEGAL} {G.TRADEMARKS} Sources and ranges: docs/VERIFICATION.md in the "
-               "project repository._")
+    out.append(f"_{G.LEGAL} {G.TRADEMARKS} Sources and ranges: docs/VERIFICATION.md; terms of use: TERMS.md "
+               "(both in the project repository)._")
     return "\n\n".join(out)
 
 
@@ -456,7 +471,7 @@ def pdf_report(res) -> bytes:
             h["rfs_text"].replace(" from start", "")]],
           [W / 5] * 5, size=8.5)
     text(f"Design: {h['platform']}, {h['kw']:,.0f} kW/rack, {h['racks']:,} racks, {h['it_mw']:,.1f} MW IT, {h['cooling']}.")
-    text(f"Recommendation: {rec['headline']}. {rec['detail']}", style="B")
+    text(f"Verdict: {rec['headline']}. {rec['detail']}", style="B")
     head("Costs ($M; total = ticked lines)")
     cl = cost_lines(res)
     rows = [["Cost line (ticked)", "$M", "$M/MW"]]
@@ -509,7 +524,7 @@ def pdf_report(res) -> bytes:
     text(f"{ok}/{len(res['checks'])} benchmark checks in range (public cost guides, industry surveys, government energy "
          f"data, supply-chain studies, platform specifications). " + " ".join(res["warnings"][:3]), 7.2)
     pdf.set_y(-14)
-    text(f"{E.DISCLAIMER} {G.LEGAL} {G.TRADEMARKS}", 5.8, color=(110, 110, 110), h_=2.6)
+    text(f"{G.LEGAL} {G.TRADEMARKS} Terms of use: TERMS.md in the project repository.", 5.8, color=(110, 110, 110), h_=2.6)
     return bytes(pdf.output())
 
 

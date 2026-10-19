@@ -22,7 +22,7 @@ hyperscale and AI/HPC projects. You write for owners, developers and general con
 
 You receive the JSON output of a deterministic cost and design engine. Never change, recompute or invent
 numbers: quote them from the JSON (in $M or $B, MW, kW/rack, months). If something is not in the JSON, say it
-needs confirming. Every figure is an indicative planning estimate, not a bid.
+needs confirming. Every figure is an early budget estimate (±30-50%), not a bid.
 
 Domain you apply:
 - Rack density: air cooling tops out near 30 kW/rack, rear-door heat exchangers near 45 kW/rack. Above
@@ -204,79 +204,78 @@ def fallback_narrative(res: dict) -> str:
     f = R.horizon(res)
     rec = res["recommendation"]
     gf = res["mode"] == "greenfield"
+    x = res["design"] if gf else res["future"]
+    pay = f"about {h['payback']:.1f} years" if h["payback"] is not None else "not reached in the analysis period"
     out = ["## Executive summary"]
     if gf:
-        out.append(f"{i['project_name']} is a single new build in {i['region']}: {h['racks']:,} {h['platform']} racks at "
-                   f"{h['kw']:,.0f} kW/rack, {h['it_mw']:,.1f} MW of IT load, cooled by {h['cooling']}. The early budget "
-                   f"estimate (±30–50%) is {R.money(h['total'])} ({R.money(h['per_mw'])} per MW IT) for the ticked cost "
-                   f"lines; with every line ticked it is {R.money(h['total_all'])}. "
-                   + (f"Not in the total: {', '.join(h['excluded'])}. " if h["excluded"] else "") +
-                   f"Payback including IT is {'about %.1f years' % h['payback'] if h['payback'] is not None else 'not reached in the period'} "
-                   f"from ready-for-service, expected {h['rfs_text']}.")
+        out.append(f"{i['project_name']}: one new build in {i['region']}, {h['racks']:,} {h['platform']} racks at "
+                   f"{h['kw']:,.0f} kW/rack ({h['it_mw']:,.1f} MW IT), {h['cooling'][0].lower() + h['cooling'][1:]} "
+                   f"cooling. Total {R.money(h['total'])} ({R.money(h['per_mw'])}/MW IT) for the ticked cost lines; "
+                   f"{R.money(h['total_all'])} with every line ticked.")
     else:
-        cur, fu, up = res["current"], res["future"], res["upgrade"]
-        out.append(f"{i['project_name']}: {cur['racks']:,} racks today at {cur['kw']:.0f} kW/rack ({cur['cooling']}) vs a "
-                   f"future-ready fit-out for {h['platform']} at {fu['kw']:.0f} kW/rack ({fu['cooling']}). The early budget "
-                   f"estimate (±30–50%) for the ticked cost lines is {R.money(h['total'])} ({R.money(h['per_mw'])} per MW IT; "
-                   f"every line ticked {R.money(h['total_all'])}). Like for like, the future-ready construction costs "
-                   f"{R.money(fu['capex'])} vs {R.money(cur['capex'])} for the current design; building current "
-                   f"now and retrofitting in year {up['year']} costs {R.money(up['path_b_total'])} including "
-                   f"{up['downtime_months']} months of downtime. Ready for IT {h['rfs_text']}.")
-    out.append(f"**Recommendation:** {rec['headline']}. {rec['detail']}")
+        cur, up = res["current"], res["upgrade"]
+        out.append(f"{i['project_name']}: {cur['racks']:,} racks today at {cur['kw']:.0f} kW/rack vs a future-ready "
+                   f"fit-out for {h['platform']} at {x['kw']:.0f} kW/rack. Total {R.money(h['total'])} "
+                   f"({R.money(h['per_mw'])}/MW IT) for the ticked cost lines; {R.money(h['total_all'])} with every line "
+                   f"ticked. Like-for-like construction: {R.money(x['construction_cost'])} future-ready vs "
+                   f"{R.money(cur['capex'])} for today's racks; today's racks plus a year-{up['year']} retrofit cost "
+                   f"{R.money(up['path_b_total'])} including {up['downtime_months']} months of downtime.")
+    if h["excluded"]:
+        out.append("Not in the total: " + ", ".join(h["excluded"]) + ".")
+    out.append(f"Ready for IT {h['rfs_text']}. Payback including IT: {pay}.")
+    out.append(f"**Verdict: {rec['headline']}.** {rec['detail']}")
+
     out.append("## Assumptions commentary")
-    out.append(f"Key design: {R.key_design_line(res)}. Facility peak demand is {v['fac_peak_kw'] / 1000:,.1f} MW "
-               f"from a component load model (IT, UPS losses, design-day cooling, house load); annual PUE "
-               f"{v['pue']:.2f} is an energy ratio. Resilience is {E_RES(i)}. Power is priced at "
-               f"${(res['design'] if gf else res['future'])['power_cost']:.3f}/kWh and GPU rental at "
-               f"${(res['design'] if gf else res['future'])['gpu_price']:.2f}/GPU-hr with {i['utilization']:.0%} "
-               "utilization; rental prices are assumed to fall 8%/yr between hardware refreshes (assumption).")
+    out.append(f"Key design: {R.key_design_line(res)}. Facility peak {v['fac_peak_kw'] / 1000:,.1f} MW (IT, UPS "
+               f"losses, design-day cooling, house load); PUE {v['pue']:.2f} is an annual energy ratio. Resilience "
+               f"{E_RES(i)}. Power ${x['power_cost']:.3f}/kWh; GPU rental ${x['gpu_price']:.2f}/GPU-hr at "
+               f"{i['utilization']:.0%} utilization, changing {float(i.get('price_change') or 0):+.0%}/yr "
+               "between hardware refreshes (assumption).")
     bad = [c for c in res["checks"] if not c["ok"]]
     out.append("All benchmark checks are within their public ranges." if not bad else
                "Outside benchmark range: " + "; ".join(f"{c['check']} = {c['value']:,.2f}" for c in bad) + ".")
+
     out.append("## Design & future-ready recommendation" if gf else "## Upgrade path recommendation")
     if not gf:
         up = res["upgrade"]
-        out.append(f"Fit out future-ready now: NPV {R.money(up['npv_a'])}. Keep current and retrofit later: NPV "
-                   f"{R.money(up['npv_b'])}. Engine recommendation: **{up['recommended']}**.")
+        out.append(f"Fit out future-ready now: NPV {R.money(up['npv_a'])}. Keep today's racks and retrofit later: NPV "
+                   f"{R.money(up['npv_b'])}. Recommended: **{up['recommended']}**.")
     if f.get("active"):
-        best = next(x for x in f["paths"] if x["path"] == f["best"])
-        out.append(f"Future-proof horizon {f['horizon']}: {f['horizon_text']} The target ({f['target_kw']:,.0f} kW/rack "
-                   f"in year {f['year']}) is priced three ways. " + " ".join(
-                       f"{x['path']}: {R.money(x['pv_total'])} present cost." for x in f["paths"]) +
-                   f" Lowest: **{best['path']}**.")
-        out.append("Provisions to include: " + "; ".join(p["provision"] + " (" + p["when"][0].lower() + p["when"][1:] + ")"
-                                                         for p in f["provisions"]) + ".")
-    else:
-        out.append(f.get("reason", ""))
+        out.append(f"Horizon {f['horizon']}: {f['target_kw']:,.0f} kW/rack in year {f['year']}. Present cost: " +
+                   "; ".join(f"{p['path'].lower()} {R.money(p['pv_total'])}" for p in f["paths"]) +
+                   f". Lowest: **{f['best']}**.")
+        if "provisions" in f["best"]:
+            out.append("Provisions to build in now: " + "; ".join(p["provision"] for p in f["provisions"]) + ".")
+    elif f.get("reason"):
+        out.append(f["reason"])
+
     out.append("## Key risks")
     S = res["cx"]["schedule"]
-    first = [x for x in S["items"] if not x["flag"].startswith("After")]
-    risks = [f"Schedule: ready for IT {S['range_text']}; critical path: {S['critical_path']}.",
-             ("Order first: " + "; ".join(f"{x['item']} (order it {x['order_ahead']:,.0f} months before you need it; "
-                                         f"RFQ by month {max(x['rfq'], 0):.0f} after start: {x['flag']})"
-                                         for x in first) + "." if first else
-              "All long-lead orders can follow notice to proceed."),
-             "2026 lead times: large power transformers about 100-160 weeks, MV switchgear 52-104, large diesel "
-             "generators 62-110.",
-             "Commissioning hard stop: no IT power-on until the liquid loop passes leak, flush, chemistry and "
-             "leak-detection tests; substantial completion follows a passed integrated systems test.",
-             "Roadmap uncertainty: announced rack densities, weights and prices can change before delivery.",
-             f"Floor loading: about {v['rack_psf']:,.0f} psf on the rack footprint; confirm slab design.",
-             "Liquid cooling commissioning and water quality for the technology cooling loop."]
+    first = [it for it in S["items"] if not it["flag"].startswith("After")]
+    risks = [f"Critical path: {S['critical_path']}."]
+    for it in first[:3]:
+        risks.append(f"{it['item']}: send the RFQ by month {max(it['rfq'], 0):.0f} and order it "
+                     f"{it['order_ahead']:,.0f} months before it is needed. {it['flag'].rstrip('.')}.")
+    if not first:
+        risks.append("All long-lead orders can follow notice to proceed.")
+    if R.main_design(res)["cooling"] == "Direct-to-chip (D2C) liquid":
+        risks.append("Hard stop: no IT power-on until the liquid loop passes leak, flush, chemistry and "
+                     "leak-detection tests.")
+    risks.append(f"Floor loading about {v['rack_psf']:,.0f} psf on the rack footprint: confirm the slab design.")
     out.append("\n".join([f"- {r}" for r in risks] + [f"- {w}" for w in res["warnings"]]))
+
     out.append("## Recommendations & next steps")
-    out.append("\n".join(["- Confirm firm MW and the energization date with the utility; secure transformer and generator slots.",
-            "- Freeze the rack platform and density; get the OEM rack power, weight and coolant specs in writing.",
-            "- Carry the future-ready provisions into the basis of design and the site layout.",
-            "- Avoid delays: " + "; ".join(G.HOW_TO_AVOID[:3]),
-            "- Replace these planning rates with a quantity-based estimate once schematic design is drawn (this is an "
-            "early budget estimate, ±30–50%).",
-            "- " + DISCLAIMER_TEXT]))
+    out.append("\n".join(["- Get firm MW and an energization date from the utility in writing.",
+                          "- Freeze the rack platform; get OEM power, weight and coolant specs in writing.",
+                          "- Carry the future-ready provisions into the basis of design.",
+                          *[f"- {t}" for t in G.HOW_TO_AVOID[1:3]],
+                          "- Replace the per-MW rates with a quantity-based estimate once schematic design is drawn.",
+                          "- " + DISCLAIMER_TEXT]))
     return "\n\n".join(out)
 
 
-DISCLAIMER_TEXT = ("All figures are an early budget estimate (±30–50%), not a bid. Not engineering, legal or financial "
-                   "advice; a licensed engineer and the AHJ must review.")
+DISCLAIMER_TEXT = ("Early budget estimate (±30–50%), not a bid, and not engineering, legal or financial advice; a "
+                   "licensed engineer and the AHJ must review.")
 
 
 def E_RES(i):

@@ -268,7 +268,8 @@ PROC_TABLES = ("us_procurement", "procurement_suppliers")
 
 def _strip_procurement(md: str) -> str:
     """Supplier names are allowed only in the US procurement section."""
-    a = md.find("## US procurement")
+    m = re.search(r"^## (?:\d+\. )?US procurement", md, re.M)
+    a = m.start() if m else -1
     b = md.find("\n## ", a + 5)
     return md if a < 0 else md[:a] + (md[b:] if b > 0 else "")
 
