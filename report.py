@@ -10,6 +10,7 @@ import pandas as pd
 
 import buildcx as CX
 import codes as CD
+import costlines as CL
 import engine as E
 import guide as G
 import platforms as PL
@@ -58,15 +59,15 @@ def val(step) -> str:
 
 # ------------------------------------------------------------------ views over the result
 def main_design(res):
-    return res["design"]["design"]
+    return res["design"]["design"] if res["mode"] == "greenfield" else res["future"]["design"]
 
 
 def horizon(res):
-    return res["future"]
+    return res["future"] if res["mode"] == "greenfield" else res["future_paths"]
 
 
 def cost_lines(res) -> dict:
-    return res["design"]["cost_lines"]
+    return res["design"]["cost_lines"] if res["mode"] == "greenfield" else res["cost_lines"]
 
 
 ROADMAP_TEXT = ("Rack roadmap: typical enterprise and earlier AI racks (H100/H200/B200 HGX class) about 40-60 kW · "
@@ -76,22 +77,27 @@ ROADMAP_TEXT = ("Rack roadmap: typical enterprise and earlier AI racks (H100/H20
 
 
 def day_one_density(res) -> str:
-    """The selected platform's actual day-one rack density."""
-    return f"{res['inputs']['platform']} about {res['design']['kw']:,.0f} kW/rack"
+    """The selected platform's actual day-one rack density (and the existing racks for a fit-out)."""
+    x = res["design"] if res["mode"] == "greenfield" else res["future"]
+    name = res["inputs"]["platform"]
+    out = f"{name} about {x['kw']:,.0f} kW/rack"
+    if res["mode"] == "fitout":
+        out += f" (existing racks {res['current']['kw']:,.0f} kW/rack)"
+    return out
 
 
 def headline(res) -> dict:
     """Numbers for the one-screen summary. The total is always the sum of the ticked cost lines."""
     cl = cost_lines(res)
     S = res["cx"]["schedule"]
-    x = res["design"]
+    x = res["design"] if res["mode"] == "greenfield" else res["future"]
     common = {"total": cl["total"], "per_mw": cl["per_mw"], "total_all": cl["total_all"], "payback": x["payback"],
               "npv": x["npv"], "it_total": x["it_total"], "it_mw": x["it_mw"], "racks": x["racks"], "kw": x["kw"],
               "cooling": x["cooling"], "rfs": S["sc"], "rfs_low": S["sc_low"], "rfs_high": S["sc_high"],
               "rfs_text": S["range_text"], "label_total": "Total project cost (ticked lines)",
               "label_per_mw": "Cost per MW IT (ticked lines)",
               "excluded": [r["label"] for r in cl["rows"] if not r["included"] and r["amount"] > 0]}
-    common["platform"] = res["design"]["platform"]["label"]
+    common["platform"] = res["design"]["platform"]["label"] if res["mode"] == "greenfield" else res["platform"]["label"]
     return common
 
 
@@ -124,6 +130,20 @@ def cost_table(res) -> pd.DataFrame:
                  "$M per MW IT": cl["per_mw"] / M, "Source type": "Sum of the ticked lines"})
     rows.append({"Include": "", "Cost line": "Total if every line is ticked", "$M": cl["total_all"] / M,
                  "$M per MW IT": cl["per_mw_all"] / M, "Source type": "Sum of all lines"})
+    return pd.DataFrame(rows)
+
+
+def fitout_compare_table(res) -> pd.DataFrame:
+    """Like-for-like construction cost of the current racks vs the future-ready fit-out (same scope)."""
+    cur, f = res["current"], res["future"]
+    rows = []
+    for k in f["systems"]:
+        rows.append({"Cost line": k, "Current $M": cur["systems"][k] / M, "Future-ready $M": f["systems"][k] / M})
+    for lbl, key in (("Soft costs (design, permits, Cx) 14%", "soft"), ("Contingency 10%", "contingency"),
+                     ("Escalation to mid-point", "escalation"), ("Construction cost (like for like)", "capex")):
+        rows.append({"Cost line": lbl, "Current $M": cur[key] / M, "Future-ready $M": f[key] / M})
+    rows.append({"Cost line": "Construction cost per MW IT", "Current $M": cur["capex_per_mw"] / M,
+                 "Future-ready $M": f["capex_per_mw"] / M})
     return pd.DataFrame(rows)
 
 
@@ -250,7 +270,7 @@ def how_it_works_table() -> pd.DataFrame:
 
 def checks_table(res) -> pd.DataFrame:
     names = {"facility_per_mw_air": "Facility $M per MW (air)", "facility_per_mw_hd": "Facility $M per MW (high density)",
-             "pue": "PUE", "power_cost": "Power price $/kWh",
+             "fitout_per_mw": "Fit-out $M per MW", "pue": "PUE", "power_cost": "Power price $/kWh",
              "transformer_weeks": "Transformer lead (weeks)", "wue": "WUE L/kWh", "gpu_price": "GPU rental $/GPU-hr"}
     rows = []
     for c in res["checks"]:
@@ -273,15 +293,23 @@ def platform_table() -> pd.DataFrame:
 
 def all_tables(res) -> dict[str, pd.DataFrame]:
     t = {"summary_costs": cost_table(res), "design_calculations": design_table(main_design(res)),
-         "benchmark_checks": checks_table(res), "schedule": schedule_table(res["design"]["schedule"]),
+         "benchmark_checks": checks_table(res), "schedule": schedule_table(
+             res["design"]["schedule"] if res["mode"] == "greenfield" else res["schedule"]),
          "long_lead": long_lead_table(), "platforms": platform_table(), "codes_and_standards": codes_table(),
          "confirm_locally": confirm_locally_table(), "us_procurement": procurement_table(),
          "procurement_suppliers": supplier_table(), "delays_and_fixes": delays_table(),
          "how_it_works": how_it_works_table()}
     t.update(cx_tables(res))
-    t["divisions"] = division_table(res)
-    t["opex"] = opex_table(res["design"])
-    t["cash_flow"] = cash_table(res["design"], res["inputs"]["years"])
+    if res["mode"] == "greenfield":
+        t["divisions"] = division_table(res)
+        t["opex"] = opex_table(res["design"])
+        t["cash_flow"] = cash_table(res["design"], res["inputs"]["years"])
+    else:
+        t["fitout_current_vs_future"] = fitout_compare_table(res)
+        t["design_calculations_current"] = design_table(res["current"]["design"])
+        t["opex_future_ready"] = opex_table(res["future"])
+        t["opex_current"] = opex_table(res["current"])
+        t["cash_flow_future_ready"] = cash_table(res["future"], res["inputs"]["years"])
     if horizon(res).get("active"):
         t["future_paths"] = future_table(res)
         t["future_upgrade_items"] = future_rows_table(res)
@@ -322,7 +350,7 @@ def markdown_report(res, narrative: str = "", narrative_src: str = "") -> str:
     out = [f"# RackReady AI report: {i['project_name']}",
            f"_Generated {date.today().isoformat()} · {E.ESTIMATE_NOTE} 2026 US dollars._",
            "## Summary",
-           f"- **Project:** {E.GREENFIELD}, {i['region']}, {E.RESILIENCE[i['resilience']]}",
+           f"- **Project:** {i['project_type']}, {i['region']}, {E.RESILIENCE[i['resilience']]}",
            f"- **Design:** {h['platform']}, {h['kw']:,.0f} kW/rack, {h['racks']:,} racks, {h['it_mw']:,.1f} MW IT, {h['cooling']}",
            f"- **{h['label_total']}:** {money(h['total'])} ({money(h['per_mw'])} per MW IT); every line ticked: "
            f"{money(h['total_all'])}",
@@ -334,7 +362,10 @@ def markdown_report(res, narrative: str = "", narrative_src: str = "") -> str:
     if res["warnings"]:
         out.append("**Warnings**\n\n" + "\n".join(f"- {w}" for w in res["warnings"]))
     out += ["## Costs (end to end; the total is the sum of the ticked lines)", _md(cost_table(res))]
-    out += ["### Facility construction by trade group", _md(group_table(res), pct_cols=("Share",))]
+    if res["mode"] == "greenfield":
+        out += ["### Facility construction by trade group", _md(group_table(res), pct_cols=("Share",))]
+    else:
+        out += ["### Current vs future-ready (like-for-like construction cost)", _md(fitout_compare_table(res))]
     f = horizon(res)
     out.append("## Future-ready horizon")
     if f.get("active"):
@@ -348,12 +379,12 @@ def markdown_report(res, narrative: str = "", narrative_src: str = "") -> str:
             "US units with SI in brackets. Formulas use standard engineering relations "
             "(three-phase current, heat-transfer flow, refrigeration tons).",
             design_table(main_design(res)).drop(columns=["Section"]).to_markdown(index=False)]
-    x = res["design"]
+    x = res["design"] if res["mode"] == "greenfield" else res["future"]
     out += ["## Operations & ROI", _md(opex_table(x)),
             f"Revenue year 1: {money(x['revenue'])} at ${x['gpu_price']:.2f}/GPU-hr and {i['utilization']:.0%} "
             f"utilization; rental price change {float(i.get('price_change') or 0):+.0%}/yr, reset at hardware refresh "
             "(assumption)."]
-    sch = res["design"]["schedule"]
+    sch = res["design"]["schedule"] if res["mode"] == "greenfield" else res["schedule"]
     S = res["cx"]["schedule"]
     out += ["## Schedule & risks",
             f"Ready for IT (substantial completion) {S['range_text']} (central case month {S['sc']:.0f}). Notice to "
@@ -446,7 +477,7 @@ def pdf_report(res) -> bytes:
     pdf.set_font("Helvetica", "B", 15)
     pdf.set_text_color(20, 20, 20)
     pdf.cell(W, 7, _latin(f"RackReady AI - {i['project_name']}"), new_x="LMARGIN", new_y="NEXT")
-    text(f"{E.GREENFIELD} | {i['region']} | {E.RESILIENCE[i['resilience']]} | {date.today().isoformat()} | "
+    text(f"{i['project_type']} | {i['region']} | {E.RESILIENCE[i['resilience']]} | {date.today().isoformat()} | "
          f"{E.ESTIMATE_NOTE}", 7.5, color=(90, 90, 90))
     head("Summary")
     rec = res["recommendation"]
@@ -496,9 +527,9 @@ def pdf_report(res) -> bytes:
             pdf.set_font("Helvetica", "B", 7)
             pdf.cell(W * 0.20, 3.6, _latin(val(s))[:30], align="R")
         pdf.ln(3.6)
-    x = res["design"]
+    x = res["design"] if res["mode"] == "greenfield" else res["future"]
     head("Operations & schedule")
-    sch = res["design"]["schedule"]
+    sch = res["design"]["schedule"] if res["mode"] == "greenfield" else res["schedule"]
     text(f"Operating cost {money(x['opex'])}/yr; revenue year 1 {money(x['revenue'])} at ${x['gpu_price']:.2f}/GPU-hr, "
          f"{i['utilization']:.0%} utilization; NPV {money(x['npv'])} over {i['years']} years at 8%. "
          f"Critical path: {sch['critical_path']}; ready for IT {res['cx']['schedule']['range_text']}. "
@@ -553,7 +584,7 @@ def checklist_pdf(res) -> bytes:
     S = cx["schedule"]
     pdf.set_font("Helvetica", "B", 15)
     pdf.cell(W, 7, _latin(f"Build & commission checklist - {i['project_name']}"), new_x="LMARGIN", new_y="NEXT")
-    text(f"{E.GREENFIELD} | generated {date.today().isoformat()} | notice to proceed about month {S['ntp']:.0f} | "
+    text(f"{i['project_type']} | generated {date.today().isoformat()} | notice to proceed about month {S['ntp']:.0f} | "
          f"ready for IT {S['range_text']}. {E.DISCLAIMER} {G.LEGAL} Field use: confirm every value against the "
          "project specifications, the approved submittals and the AHJ.", 8, color=(90, 90, 90))
     head("Liquid-loop hard stop")

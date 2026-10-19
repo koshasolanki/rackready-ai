@@ -18,7 +18,11 @@ ALL_PLATFORMS = list(PL.PLATFORMS)
 
 
 def gf(**kw):
-    return E.run_model(kw)
+    return E.run_model({"project_type": E.GREENFIELD, **kw})
+
+
+def fit(**kw):
+    return E.run_model({"project_type": E.FITOUT, "size_by": "Racks", "racks": 200, **kw})
 
 
 # ----------------------------------------------------------------- internal consistency (physics)
@@ -122,12 +126,30 @@ def test_gpu_rates_inside_public_ranges():
     assert 2.0 <= PL.PLATFORMS["H100 HGX"]["gpu_hr"] <= 4.0   # Hopper-class $2-4
 
 
-# ----------------------------------------------------------------- the D2C rule
+def test_fitout_ranges():
+    r = fit()
+    c, f = r["current"], r["future"]
+    assert 9e6 <= c["capex_per_mw"] <= 16e6
+    assert 7e6 <= f["capex_per_mw"] <= 30e6
+    for s in (c, f):
+        assert abs(s["capex"] - (s["direct"] + s["soft"] + s["contingency"] + s["escalation"])) < 1
+        assert abs(sum(s["opex_items"].values()) - s["opex"]) < 1
+
+
+# ----------------------------------------------------------------- the D2C rule in every mode
 @pytest.mark.parametrize("kw,expect", [(40, HYBRID), (45, HYBRID), (46, D2C), (50, D2C), (600, D2C)])
 def test_d2c_rule_greenfield(kw, expect):
     r = gf(platform=PL.CUSTOM, custom_kw=kw, cooling=HYBRID)
     assert r["design"]["cooling"] == expect
     assert r["design"]["cooling_auto"] == (expect == D2C)
+
+
+@pytest.mark.parametrize("kw,expect", [(40, HYBRID), (50, D2C), (600, D2C)])
+def test_d2c_rule_fitout(kw, expect):
+    r = fit(platform=PL.CUSTOM, custom_kw=kw, cooling=HYBRID)
+    assert r["future"]["cooling"] == expect
+    r2 = fit(current_kw=50, current_cooling=AIR)
+    assert r2["current"]["cooling"] == D2C
 
 
 def test_600kw_case():
@@ -145,7 +167,7 @@ def test_600kw_case():
 # ----------------------------------------------------------------- greenfield = single build
 def test_greenfield_single_build():
     r = gf()
-    assert "current" not in r and "upgrade" not in r and not hasattr(E, "FITOUT")
+    assert r["mode"] == "greenfield" and "current" not in r
     p = E.summary_for_llm(r)
     assert "current" not in p and "retrofit_comparison" not in p
     text = llm.fallback_narrative(r).lower()
@@ -244,6 +266,8 @@ def test_llm_payload_has_design_calcs():
     p = E.summary_for_llm(gf())
     assert "design_calculations" in p and p["design_calculations"]["service_mva"] > 0
     assert p["future_ready"]["best"]
+    p2 = E.summary_for_llm(fit())
+    assert "retrofit_comparison" in p2 and p2["future_ready"]["design_calculations"]
 
 
 def test_api_key_never_in_payload(monkeypatch):

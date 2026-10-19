@@ -72,6 +72,7 @@ PLATFORMS = list(PL.PLATFORMS) + [PL.CUSTOM]
 def _load_preset(name: str):
     i = E.merged(E.PRESETS[name])
     ss = st.session_state
+    ss["w_type"] = i["project_type"]
     ss["w_name"] = i["project_name"]
     ss["w_size_by"] = i["size_by"]
     ss["w_mw"] = float(i["it_mw"])
@@ -81,6 +82,8 @@ def _load_preset(name: str):
     ss["w_res"] = i["resilience"]
     ss["w_horizon"] = i["horizon"]
     ss["w_cool"] = i["cooling"] or HYBRID
+    ss["w_cur_kw"] = float(i["current_kw"])
+    ss["w_cur_cool"] = i["current_cooling"]
     ss["w_mtp"] = int(i["months_to_power"])
     ss["w_dm"] = int(i["design_months"])
     ss["w_cm"] = int(i["construction_months"] or 0)
@@ -92,7 +95,7 @@ def _on_preset():
         _load_preset(name)
 
 
-if "w_name" not in st.session_state:
+if "w_type" not in st.session_state:
     st.session_state["w_preset"] = E.DEFAULT_PRESET
     _load_preset(E.DEFAULT_PRESET)
 
@@ -117,6 +120,12 @@ with st.sidebar:
     st.caption("Results update as you type.")
     st.selectbox("Start from a preset", list(E.PRESETS), key="w_preset", on_change=_on_preset,
                  help="Loads a typical project. You can then change any input.")
+    inputs["project_type"] = st.radio(
+        "Project type", E.PROJECT_TYPES, key="w_type",
+        format_func=lambda p: "🏗️ Greenfield: new build" if p == E.GREENFIELD else "🏢 Existing building fit-out",
+        help="Greenfield = one new campus built from scratch. Fit-out = new racks in an existing building, "
+             "compared with keeping today's racks.")
+    gf = inputs["project_type"] == E.GREENFIELD
     inputs["size_by"] = st.radio("Size by", ["IT MW", "Racks"], key="w_size_by", horizontal=True,
                                  help="IT MW = critical IT load (GPU racks), not utility MW.")
     if inputs["size_by"] == "IT MW":
@@ -153,8 +162,22 @@ with st.sidebar:
     with st.expander("Advanced", expanded=False):
         inputs["project_name"] = st.text_input("Project name", key="w_name", help="Shown on reports.")
         st.markdown("**Cooling**")
-        inputs["cooling"] = cooling_widget(st, "Cooling", kw_now, "w_cool",
-                                           "At or below 45 kW/rack choose air or rear-door (hybrid).")
+        if gf:
+            inputs["cooling"] = cooling_widget(st, "Cooling", kw_now, "w_cool",
+                                               "At or below 45 kW/rack choose air or rear-door (hybrid).")
+        else:
+            inputs["cooling"] = cooling_widget(st, "Future-ready cooling", kw_now, "w_cool",
+                                               "Cooling for the new racks.")
+            st.markdown("**Existing hall today**")
+            inputs["current_kw"] = float(st.number_input("Current kW/rack", 3.0, 60.0, step=1.0, key="w_cur_kw",
+                                                         help="Average power of today's racks."))
+            inputs["current_cooling"] = cooling_widget(st, "Current cooling", inputs["current_kw"], "w_cur_cool",
+                                                       "Today's cooling system.")
+            c1, c2 = st.columns(2)
+            inputs["current_gpus"] = int(c1.number_input("Current GPUs/rack", 0, 72, D["current_gpus"],
+                                                         help="GPUs in each of today's racks."))
+            inputs["current_gpu_price"] = float(c2.number_input("Current $/GPU-hr", 0.0, 20.0, D["current_gpu_price"],
+                                                                step=0.25, help="Rental rate for today's GPUs."))
         st.markdown("**Revenue and operations**")
         gp = float(st.number_input("GPU rental $/GPU-hr (0 = platform default)", 0.0, 60.0, 0.0, step=0.25,
                                    help="Contract rate for the new GPUs. Defaults sit inside public market ranges."))
@@ -173,23 +196,28 @@ with st.sidebar:
         inputs["overhead_pct"] = st.slider("Cloud operations overhead (% of revenue)", 0.0, 0.4, D["overhead_pct"], 0.01,
                                            help="Software, sales, network transit and support (assumption).")
         st.markdown("**Cost and schedule**")
-        inputs["contingency"] = st.slider("Contingency", 0.0, 0.25, D["contingency"], 0.01,
-                                          help="Design and pricing contingency at planning stage.")
-        inputs["owner_pct"] = st.slider("Owner costs", 0.0, 0.10, D["owner_pct"], 0.005,
-                                        help="Permits, owner's team, builder's risk insurance.")
-        land = float(st.number_input("Land $/acre (0 = location default)", 0.0, 50e6, 0.0, step=50_000.0,
-                                     help="Powered-land price. Indicative defaults by location."))
-        inputs["land_per_acre"] = land or None
-        inputs["months_to_power"] = int(st.number_input("Months to utility power", 6, 120, key="w_mtp",
-                                                        help="Months from start until the utility can energize the site "
-                                                             "(use the utility's committed timing)."))
-        c1, c2 = st.columns(2)
-        inputs["design_months"] = int(c1.number_input("Design months", 2, 36, key="w_dm",
-                                                      help="Design and permits."))
-        cm = int(c2.number_input("Build months (0 = auto)", 0, 60, key="w_cm",
-                                 help="Construction from notice to proceed to energization start. "
-                                      "0 = scales with MW: 12 + 12 x sqrt(MW/100), 12-40 months."))
-        inputs["construction_months"] = cm or None
+        if gf:
+            inputs["contingency"] = st.slider("Contingency", 0.0, 0.25, D["contingency"], 0.01,
+                                              help="Design and pricing contingency at planning stage.")
+            inputs["owner_pct"] = st.slider("Owner costs", 0.0, 0.10, D["owner_pct"], 0.005,
+                                            help="Permits, owner's team, builder's risk insurance.")
+            land = float(st.number_input("Land $/acre (0 = location default)", 0.0, 50e6, 0.0, step=50_000.0,
+                                         help="Powered-land price. Indicative defaults by location."))
+            inputs["land_per_acre"] = land or None
+            inputs["months_to_power"] = int(st.number_input("Months to utility power", 6, 120, key="w_mtp",
+                                                            help="Months from start until the utility can energize the site "
+                                                                 "(use the utility's committed timing)."))
+            c1, c2 = st.columns(2)
+            inputs["design_months"] = int(c1.number_input("Design months", 2, 36, key="w_dm",
+                                                          help="Design and permits."))
+            cm = int(c2.number_input("Build months (0 = auto)", 0, 60, key="w_cm",
+                                     help="Construction from notice to proceed to energization start. "
+                                          "0 = scales with MW: 12 + 12 x sqrt(MW/100), 12-40 months."))
+            inputs["construction_months"] = cm or None
+        else:
+            fb = int(st.number_input("Fit-out build months (0 = auto)", 0, 36, 0,
+                                     help="0 = scales with MW: 8 + 6 x sqrt(MW/100), 8-24 months."))
+            inputs["fitout_build_months"] = fb or None
         st.markdown("**Schedule factors**")
         c1, c2 = st.columns(2)
         inputs["overtime_hours"] = int(c1.selectbox("Work week (hours)", [40, 50, 60, 70], 0, key="w_ot",
@@ -262,7 +290,7 @@ h = R.headline(res)
 st.markdown("# ⚡ RackReady AI")
 st.markdown('<div class="rr-sub">Design, price and schedule an AI data center in seconds, '
             'from today\'s 135 kW GB300 racks to tomorrow\'s 600 kW.</div>', unsafe_allow_html=True)
-badges = ["🏗️ Greenfield new build", h["platform"],
+badges = [("🏗️ Greenfield new build" if gf else "🏢 Existing building fit-out"), h["platform"],
           f"{h['kw']:,.0f} kW/rack", f"{h['racks']:,} racks", f"{h['it_mw']:,.1f} MW IT", h["cooling"],
           inputs["region"], E.RESILIENCE[inputs["resilience"]].split(" (")[0],
           f"Horizon: {inputs['horizon']}"]
@@ -356,7 +384,8 @@ with st.expander("📘 How it works"):
     st.markdown("""
 - **Design first, then cost.** Standard engineering formulas size the power, cooling, fire, water, network and
   land; a per-MW cost basis for the platform prices the build (redundancy, location, contingency, escalation).
-- **Greenfield.** One new campus built from scratch, sized by IT MW or by racks.
+- **Greenfield or fit-out.** Greenfield is one new campus from scratch. Fit-out compares today's racks with a
+  future-ready fit-out of the same hall and with retrofitting later.
 - **Liquid above 45 kW/rack.** Air tops out near 30 kW/rack and rear-door coolers near 45 kW; above that every
   design uses direct-to-chip liquid cooling.
 - **Future-ready.** For a 5, 10 or 15-year horizon it prices retrofit later vs provisions now vs full future

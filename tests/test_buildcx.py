@@ -74,7 +74,7 @@ def test_ab_rack_each_side_carries_whole_rack(v, p, res):
 def test_busway_loading_at_most_80_percent():
     for name in E.PRESETS:
         r = E.run_model(E.PRESETS[name])
-        dz = r["design"]["design"]
+        dz = r["design"]["design"] if r["mode"] == "greenfield" else r["future"]["design"]
         if dz["v"]["busway_rating"]:
             assert dz["v"]["busway_loading"] <= 80.0 + 1e-6
 
@@ -136,9 +136,10 @@ def test_fiber_counts(v, res):
 
 # ----------------------------------------------------------------- schedule and order-by dates
 def test_auto_build_months():
-    assert CX.auto_build_months(100) == pytest.approx(24)
-    assert CX.auto_build_months(10) == pytest.approx(12 + 12 * math.sqrt(0.1))
-    assert CX.auto_build_months(5000) == 40 and 12 <= CX.auto_build_months(0.1) < 12.5
+    assert CX.auto_build_months(100, True) == pytest.approx(24)
+    assert CX.auto_build_months(10, True) == pytest.approx(12 + 12 * math.sqrt(0.1))
+    assert CX.auto_build_months(5000, True) == 40 and 12 <= CX.auto_build_months(0.1, True) < 12.5
+    assert CX.auto_build_months(100, False) == pytest.approx(14)
 
 
 def test_overtime_factor():
@@ -172,12 +173,14 @@ def test_order_by_reverse_schedule(res):
     assert tx["flag"].startswith("Critical")                       # 100 MW: transformers set the date
 
 
-def test_factors_move_dates():
-    base = CX.schedule(it_mw=100, design_months=9, build_months=None, months_to_power=None,
+def test_fitout_skips_site_work_and_factors_move_dates():
+    f = E.run_model(E.PRESETS["Existing-hall fit-out (200 racks, 15 kW -> GB300)"])["cx"]["schedule"]
+    assert not any(p["phase"].startswith("Site") for p in f["phases"])
+    base = CX.schedule(it_mw=100, greenfield=True, design_months=9, build_months=None, months_to_power=None,
                        onsite_hv=False, d2c=True)
-    wet = CX.schedule(it_mw=100, design_months=9, build_months=None, months_to_power=None,
+    wet = CX.schedule(it_mw=100, greenfield=True, design_months=9, build_months=None, months_to_power=None,
                       onsite_hv=False, d2c=True, weather=0.2, congestion=0.2)
-    ot = CX.schedule(it_mw=100, design_months=9, build_months=None, months_to_power=None,
+    ot = CX.schedule(it_mw=100, greenfield=True, design_months=9, build_months=None, months_to_power=None,
                      onsite_hv=False, d2c=True, overtime_hours=60)
 
     def dur(s, name):
@@ -185,7 +188,7 @@ def test_factors_move_dates():
     assert dur(wet, "Commissioning") > dur(base, "Commissioning")
     assert dur(ot, "Commissioning") == pytest.approx(dur(base, "Commissioning"))   # Cx does not compress
     assert dur(ot, "MEP") < dur(base, "MEP")
-    big = CX.schedule(it_mw=300, design_months=9, build_months=None, months_to_power=None,
+    big = CX.schedule(it_mw=300, greenfield=True, design_months=9, build_months=None, months_to_power=None,
                       onsite_hv=True, d2c=True)
     assert big["build_months"] > base["build_months"]
 

@@ -10,6 +10,7 @@ import codes as CD
 import costlines as CL
 import engine as E
 import guide as G
+import platforms as PL
 import procurement as PR
 import report as R
 from ui_common import AMBER, GREEN, GREY, dark, esc_md, metric
@@ -107,28 +108,55 @@ def cost_checklist(res):
 
 # ------------------------------------------------------------------ costs
 def tab_costs(res):
-    d = res["design"]
-    _mk(f"**One new build** · {d['platform']['label']} · {d['racks']:,} racks · {d['it_mw']:,.1f} MW IT · "
-                f"{d['cooling']}" + (f" ({E.D2C_NOTE})" if d["cooling_auto"] else ""))
+    if res["mode"] == "greenfield":
+        d = res["design"]
+        _mk(f"**One new build** · {d['platform']['label']} · {d['racks']:,} racks · {d['it_mw']:,.1f} MW IT · "
+                    f"{d['cooling']}" + (f" ({E.D2C_NOTE})" if d["cooling_auto"] else ""))
+        cost_checklist(res)
+        g = R.group_table(res)
+        fig = go.Figure(go.Bar(x=g["$M"], y=g["Group"], orientation="h", marker_color=GREEN,
+                               text=[f"${v:,.0f}M ({s:.0%})" for v, s in zip(g["$M"], g["Share"])],
+                               textposition="auto"))
+        fig.update_yaxes(autorange="reversed")
+        st.plotly_chart(dark(fig, 340, title="Facility construction by trade group ($M)"), width="stretch")
+        with st.expander("All 22 construction divisions"):
+            _df(R.division_table(res), pct_cols=("Share",))
+        if d["cost"]["changes"]:
+            _mk("**Changes from the N+1, 48-hour-fuel basis** (priced from the design counts, +13% soft cost)")
+            _df(pd.DataFrame([{"Change": a, "$M": c / M} for a, _, c in d["cost"]["changes"]]))
+        with st.expander("How the facility cost is built"):
+            _cp(f"Basis: {d['platform']['label']} facility cost {R.money(d['platform']['rate'])}/MW IT "
+                   f"(range {R.money(d['platform']['low'])}-{R.money(d['platform']['high'])}) in 2026 dollars, N. Virginia, "
+                   f"N+1, including general conditions and 4% contingency; then contingency set to "
+                   f"{d['cost']['contingency_pct']:.0%}, location factor {d['cost']['region_factor']:.2f}, owner costs and "
+                   "escalation. The cost lines above split this facility cost (they add back to it exactly) and add "
+                   "spares, racks where the platform price excludes them, bridging power and IT.")
+        return
+    cur, f, up = res["current"], res["future"], res["upgrade"]
+    _mk(f"**Existing building** · {cur['racks']:,} racks · current {cur['kw']:.0f} kW/rack ({cur['cooling']}) "
+                f"vs future-ready {f['kw']:.0f} kW/rack ({f['cooling']})")
     cost_checklist(res)
-    g = R.group_table(res)
-    fig = go.Figure(go.Bar(x=g["$M"], y=g["Group"], orientation="h", marker_color=GREEN,
-                           text=[f"${v:,.0f}M ({s:.0%})" for v, s in zip(g["$M"], g["Share"])],
-                           textposition="auto"))
-    fig.update_yaxes(autorange="reversed")
-    st.plotly_chart(dark(fig, 340, title="Facility construction by trade group ($M)"), width="stretch")
-    with st.expander("All 22 construction divisions"):
-        _df(R.division_table(res), pct_cols=("Share",))
-    if d["cost"]["changes"]:
-        _mk("**Changes from the N+1, 48-hour-fuel basis** (priced from the design counts, +13% soft cost)")
-        _df(pd.DataFrame([{"Change": a, "$M": c / M} for a, _, c in d["cost"]["changes"]]))
-    with st.expander("How the facility cost is built"):
-        _cp(f"Basis: {d['platform']['label']} facility cost {R.money(d['platform']['rate'])}/MW IT "
-               f"(range {R.money(d['platform']['low'])}-{R.money(d['platform']['high'])}) in 2026 dollars, N. Virginia, "
-               f"N+1, including general conditions and 4% contingency; then contingency set to "
-               f"{d['cost']['contingency_pct']:.0%}, location factor {d['cost']['region_factor']:.2f}, owner costs and "
-               "escalation. The cost lines above split this facility cost (they add back to it exactly) and add "
-               "spares, racks where the platform price excludes them, bridging power and IT.")
+    _mk("**Current vs future-ready: like-for-like construction cost** (same scope both ways)")
+    _df(R.fitout_compare_table(res))
+    sysn = list(f["systems"])
+    fig = go.Figure([go.Bar(name="Current", x=sysn, y=[cur["systems"][k] / M for k in sysn], marker_color=GREY),
+                     go.Bar(name="Future-ready", x=sysn, y=[f["systems"][k] / M for k in sysn], marker_color=GREEN)])
+    st.plotly_chart(dark(fig, 340, barmode="group", title="Fit-out cost by system ($M)"), width="stretch")
+    _mk(f"**Build current now, retrofit in year {up['year']}?**")
+    _df(pd.DataFrame([
+        {"Option": "Future-ready fit-out now", "Day one $M": up["day_one_capex"] / M, "Retrofit $M": 0.0,
+         "Downtime $M": 0.0, "NPV $M": up["npv_a"] / M},
+        {"Option": f"Current now + retrofit in year {up['year']}", "Day one $M": cur["capex"] / M,
+         "Retrofit $M": up["retrofit_capex"] / M, "Downtime $M": up["downtime_cost"] / M, "NPV $M": up["npv_b"] / M}]))
+    _cp(f"Retrofit priced at 1.35x new work in a live building, 6% demolition, partial reuse of existing "
+               f"systems and {up['downtime_months']} months of lost revenue (assumptions). Recommendation: "
+               f"**{up['recommended']}**.")
+    ca = pd.Series(up["flows_a"]).cumsum() / M
+    cb = pd.Series(up["flows_b"]).cumsum() / M
+    fig = go.Figure([go.Scatter(y=ca, name="Future-ready now", line_color=GREEN),
+                     go.Scatter(y=cb, name="Retrofit later", line_color=AMBER)])
+    fig.update_xaxes(title="Year")
+    st.plotly_chart(dark(fig, 300, title="Cumulative cash flow incl. IT ($M)"), width="stretch")
 
 
 # ------------------------------------------------------------------ future-ready
@@ -165,7 +193,12 @@ def tab_future(res):
 
 # ------------------------------------------------------------------ design calcs
 def tab_design(res):
-    options = {"Day-one design": res["design"]["design"]}
+    options = {}
+    if res["mode"] == "greenfield":
+        options["Day-one design"] = res["design"]["design"]
+    else:
+        options["Future-ready fit-out"] = res["future"]["design"]
+        options["Current racks"] = res["current"]["design"]
     f = R.horizon(res)
     if f.get("active"):
         options[f"Future target ({f['target_kw']:,.0f} kW/rack)"] = f["design_T"]
@@ -184,7 +217,10 @@ def tab_design(res):
 # ------------------------------------------------------------------ operations
 def tab_ops(res):
     i = res["inputs"]
-    cases = {"Design": res["design"]}
+    if res["mode"] == "greenfield":
+        cases = {"Design": res["design"]}
+    else:
+        cases = {"Future-ready": res["future"], "Current": res["current"]}
     cols = st.columns(len(cases))
     for col, (name, x) in zip(cols, cases.items()):
         with col:
@@ -246,7 +282,7 @@ def tab_schedule(res):
             f"Work week {S['overtime_hours']} h (field-work factor {S['overtime_factor']:.2f}), weather "
         f"+{S['weather']:.0%} on exterior work, congestion +{S['congestion']:.0%} on interior work and commissioning. "
         "Overtime does not compress commissioning. Build duration auto-scales with MW when Build months = 0.")
-    t = R.schedule_table(res["design"]["schedule"])
+    t = R.schedule_table(res["design"]["schedule"] if res["mode"] == "greenfield" else res["schedule"])
     fig = go.Figure(go.Bar(x=t["Months"], y=t["Driver"], orientation="h",
                            marker_color=[GREEN if c else GREY for c in t["Critical"]],
                            text=[f"{m:.0f} mo" for m in t["Months"]], textposition="auto"))
@@ -313,7 +349,7 @@ def tab_build(res):
 # ------------------------------------------------------------------ assumptions & sources
 SOURCES = [
     ("Global data center cost outlooks, 2026 (commercial real-estate advisors)", "Average shell & core about "
-     "$11.3M/MW (air-cooled), liquid cooling adds about 10%, AI interiors can reach $25M/MW; US & Canada greenfield "
+     "$11.3M/MW (air-cooled), liquid cooling adds about 10%, AI fit-out can reach $25M/MW; US & Canada greenfield "
      "all-in about $17.6M/MW excluding IT; grid waits above 4 years in primary markets"),
     ("Data center construction cost index, 2025-26 (cost consultancy)", "AI builds carry a 7-10% premium; about "
      "5.5% annual construction inflation"),
@@ -338,9 +374,9 @@ def tab_assumptions(res):
     _mk("**Benchmark checks**: each key result against a public range")
     _df(R.checks_table(res))
     _mk("**Main assumptions** (change them in the sidebar under Advanced)")
-    x = res["design"]
+    x = res["design"] if res["mode"] == "greenfield" else res["future"]
     rows = [("Location factor", f"{E.REGIONS[i['region']]['factor']:.2f} vs N. Virginia", "Market cost indices; assumption"),
-            ("Contingency", f"{float(i['contingency']):.0%}", "Planning stage; assumption"),
+            ("Contingency", f"{float(i['contingency']):.0%}" if res["mode"] == "greenfield" else "10%", "Planning stage; assumption"),
             ("Escalation", f"{float(i.get('escalation') or 0):.0%}/yr to construction mid-point", "Cost index 2025-26 about 5.5%"),
             ("Power price", f"${x['power_cost']:.3f}/kWh", "Regional default; US government energy statistics"),
             ("GPU rental", f"${x['gpu_price']:.2f}/GPU-hr at {i['utilization']:.0%} utilization", "Contract-rate assumption within public ranges"),

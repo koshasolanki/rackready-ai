@@ -26,12 +26,12 @@ def _run(**widgets):
     for key, value in widgets.items():
         at.sidebar.selectbox(key=key).set_value(value) if key in ("w_preset", "w_platform", "w_region", "w_res",
                                                                   "w_horizon") else None
-        if key == "w_size_by":
+        if key in ("w_type", "w_size_by"):
             at.sidebar.radio(key=key).set_value(value)
-        if key in ("w_mw", "w_racks", "w_custom_kw"):
+        if key in ("w_mw", "w_racks", "w_custom_kw", "w_cur_kw"):
             continue
         at.run()
-    for key in ("w_mw", "w_racks", "w_custom_kw"):
+    for key in ("w_mw", "w_racks", "w_custom_kw", "w_cur_kw"):
         if key in widgets:
             at.number_input(key=key).set_value(widgets[key]).run()
     return at
@@ -56,15 +56,17 @@ def test_presets(preset):
     assert any("Verdict" in s.value for s in at.success)
 
 
+@pytest.mark.parametrize("ptype", E.PROJECT_TYPES)
 @pytest.mark.parametrize("plat", list(PL.PLATFORMS))
-def test_every_platform(plat):
-    at = _run(w_platform=plat)
+def test_every_platform_both_modes(ptype, plat):
+    at = _run(w_type=ptype, w_platform=plat)
     _ok(at)
 
 
+@pytest.mark.parametrize("ptype", E.PROJECT_TYPES)
 @pytest.mark.parametrize("kw,d2c", [(40, False), (50, True), (600, True)])
-def test_custom_density_d2c_switch(kw, d2c):
-    at = _run(w_platform=PL.CUSTOM, w_custom_kw=float(kw))
+def test_custom_density_d2c_switch(ptype, kw, d2c):
+    at = _run(w_type=ptype, w_platform=PL.CUSTOM, w_custom_kw=float(kw))
     body = _ok(at)
     locked = [c.value for c in at.caption if "D2C auto-selected" in c.value and "🔒" in c.value]
     assert bool(locked) == d2c, (kw, locked)
@@ -77,12 +79,9 @@ def test_horizons(h):
     _ok(at)
 
 
-def test_greenfield_only_no_fitout_ui():
-    at = _run()
+def test_greenfield_has_no_current_case():
+    at = _run(w_type=E.GREENFIELD)
     body = _ok(at)
-    assert not [r for r in at.sidebar.radio if r.label == "Project type"]
-    assert "fit-out" not in body.lower() and "existing building" not in body.lower()
-    assert all("fit-out" not in p.lower() for p in E.PRESETS)
     assert "current" not in " ".join(s.value for s in at.success).lower()
     assert "Retrofit later" not in body or "retrofit later" in body.lower()
 
