@@ -5,7 +5,7 @@
 **Build for 135 kW racks today and 600 kW racks tomorrow? RackReady AI designs the facility, prices it, tests it
 against public benchmarks, and NVIDIA Nemotron explains the decision.**
 
-Built for the **Nebius x NVIDIA Build Week** hackathon (2026).
+Built for the **Nebius x NVIDIA Global AI Hackathon** (2026).
 
 ![RackReady AI summary](docs/hero.png)
 

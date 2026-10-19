@@ -1,6 +1,6 @@
 """
 RackReady AI - data center cost and design model for high-density AI racks.
-Built for Nebius x NVIDIA Build Week.
+Built for Nebius x NVIDIA Global AI Hackathon.
 
 Run:  streamlit run app.py
 """
@@ -287,7 +287,7 @@ except Exception as e:  # clear error, never a stack trace
 h = R.headline(res)
 st.markdown("# ⚡ RackReady AI")
 st.markdown('<div class="rr-sub">Cost and design model for high-density AI data centers. '
-            '<b>Built for Nebius x NVIDIA Build Week.</b></div>', unsafe_allow_html=True)
+            '<b>Built for Nebius x NVIDIA Global AI Hackathon.</b></div>', unsafe_allow_html=True)
 badges = [("🏗️ Greenfield new build" if gf else "🏢 Existing building fit-out"), h["platform"],
           f"{h['kw']:,.0f} kW/rack", f"{h['racks']:,} racks", f"{h['it_mw']:,.1f} MW IT", h["cooling"],
           inputs["region"], E.RESILIENCE[inputs["resilience"]].split(" (")[0],
@@ -420,4 +420,4 @@ narrative from the model's output; without a key a rule-based narrative is shown
     st.markdown(esc_md(" · ".join(f"{a} ${b:g}" for a, b in G.CAPEX_SPLIT)))
     st.caption(esc_md(G.CAPEX_NOTE))
 st.caption(esc_md(f"{E.DISCLAIMER} {G.LEGAL}"))
-st.caption(esc_md(f"RackReady AI · Built for Nebius x NVIDIA Build Week · {G.TRADEMARKS}"))
+st.caption(esc_md(f"RackReady AI · Built for Nebius x NVIDIA Global AI Hackathon · {G.TRADEMARKS}"))

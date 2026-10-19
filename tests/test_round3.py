@@ -134,3 +134,11 @@ def test_no_banned_wording_or_calendar_dates(pre):
     assert not re.search(r"\b20[2-3]\d-\d\d-\d\d\b", md)
     assert not re.search(r"\b(January|February|March|April|May|June|July|August|September|October|November|"
                          r"December) 20[2-3]\d\b", "\n".join(r["Basis"] for _, r in ob.iterrows()))
+
+
+def test_official_event_name():
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for f in ("app.py", "README.md", "report.py", "llm.py", "ui_views.py", "guide.py", "SAMPLE_INPUTS.md",
+              "docs/VERIFICATION.md"):
+        assert "Build Week" not in open(os.path.join(root, f), encoding="utf-8").read(), f
+    assert "Nebius x NVIDIA Global AI Hackathon" in open(os.path.join(root, "app.py"), encoding="utf-8").read()
