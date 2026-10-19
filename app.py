@@ -118,13 +118,10 @@ inputs: dict = {}
 with st.sidebar:
     st.markdown("### ⚡ RackReady AI")
     st.caption("Results update as you type.")
-    st.selectbox("Start from a preset", list(E.PRESETS), key="w_preset", on_change=_on_preset,
+    st.selectbox("Start from a preset", [n for n, p in E.PRESETS.items() if p.get("project_type") != E.FITOUT],
+                 key="w_preset", on_change=_on_preset,
                  help="Loads a typical project. You can then change any input.")
-    inputs["project_type"] = st.radio(
-        "Project type", E.PROJECT_TYPES, key="w_type",
-        format_func=lambda p: "🏗️ Greenfield: new build" if p == E.GREENFIELD else "🏢 Existing building fit-out",
-        help="Greenfield = one new campus built from scratch. Fit-out = new racks in an existing building, "
-             "compared with keeping today's racks.")
+    inputs["project_type"] = E.GREENFIELD
     gf = inputs["project_type"] == E.GREENFIELD
     inputs["size_by"] = st.radio("Size by", ["IT MW", "Racks"], key="w_size_by", horizontal=True,
                                  help="IT MW = critical IT load (GPU racks), not utility MW.")

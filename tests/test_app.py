@@ -16,6 +16,9 @@ TABS = ["Costs", "Future-ready", "Design calculations", "Schedule & risks", "Cod
         "Build & commission", "Operations & ROI", "Assumptions & sources"]
 
 
+APP_PRESETS = [n for n, p in E.PRESETS.items() if p.get("project_type") != E.FITOUT]
+
+
 @pytest.fixture(autouse=True)
 def _no_key(monkeypatch):
     monkeypatch.delenv("NEBIUS_API_KEY", raising=False)
@@ -26,7 +29,7 @@ def _run(**widgets):
     for key, value in widgets.items():
         at.sidebar.selectbox(key=key).set_value(value) if key in ("w_preset", "w_platform", "w_region", "w_res",
                                                                   "w_horizon") else None
-        if key in ("w_type", "w_size_by"):
+        if key == "w_size_by":
             at.sidebar.radio(key=key).set_value(value)
         if key in ("w_mw", "w_racks", "w_custom_kw", "w_cur_kw"):
             continue
@@ -49,21 +52,21 @@ def _ok(at):
     return body
 
 
-@pytest.mark.parametrize("preset", list(E.PRESETS))
+@pytest.mark.parametrize("preset", APP_PRESETS)
 def test_presets(preset):
     at = _run(w_preset=preset)
     _ok(at)
     assert any("Verdict" in s.value for s in at.success)
 
 
-@pytest.mark.parametrize("ptype", E.PROJECT_TYPES)
+@pytest.mark.parametrize("ptype", [E.GREENFIELD])
 @pytest.mark.parametrize("plat", list(PL.PLATFORMS))
 def test_every_platform_both_modes(ptype, plat):
     at = _run(w_type=ptype, w_platform=plat)
     _ok(at)
 
 
-@pytest.mark.parametrize("ptype", E.PROJECT_TYPES)
+@pytest.mark.parametrize("ptype", [E.GREENFIELD])
 @pytest.mark.parametrize("kw,d2c", [(40, False), (50, True), (600, True)])
 def test_custom_density_d2c_switch(ptype, kw, d2c):
     at = _run(w_type=ptype, w_platform=PL.CUSTOM, w_custom_kw=float(kw))
@@ -136,3 +139,11 @@ def test_first_screen_terms_and_no_nagging():
     assert len(at.warning) <= 2  # one compact warnings block + the build hard stop
     assert "Your day-one design: GB300 NVL72 about 135 kW/rack." in captions and "40-60 kW today" not in captions
     assert any("a 600 kW/rack target installed in year 5 after ready for IT" in x.value for x in at.success)
+
+
+def test_no_fitout_option_or_preset_in_sidebar():
+    at = _run()
+    _ok(at)
+    assert not [r for r in at.sidebar.radio if r.label == "Project type"]
+    assert at.sidebar.selectbox(key="w_preset").options == APP_PRESETS
+    assert all("fit-out" not in o.lower() for o in APP_PRESETS)

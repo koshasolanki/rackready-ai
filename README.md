@@ -8,7 +8,7 @@
 
 ## What it does
 
-Pick a project type (greenfield or existing-building fit-out), a size, a GPU platform, a location, a redundancy
+Pick a size, a GPU platform, a location, a redundancy
 level and a future-proof horizon. In seconds you get:
 
 | Tab | What you get |
@@ -31,7 +31,6 @@ full Markdown report and CSV tables.
 |---|---|---|---|---|---|---|---|
 | 100 MW AI campus | GB300 NVL72, 741 racks, D2C, PUE 1.20 | $2.33B | $23.3M | $6.08B | 3.1 years | about 41–51 months from start | Build today + future-ready provisions |
 | 10 MW edge AI hall | H200 HGX, 239 racks, rear-door hybrid, PUE 1.35 | $188.1M | $18.8M | $561.6M | 6.7 years | about 26–38 months from start | Build today + future-ready provisions |
-| Existing-hall fit-out | 200 racks, 15 kW air to GB300 D2C | $358.2M | $13.3M | $1.37B | 2.5 years | about 33–48 months from start | Fit out future-ready now |
 
 ## Try it
 
@@ -82,13 +81,12 @@ Never commit `.streamlit/secrets.toml`; it is in `.gitignore`.
   split into 22 construction divisions, prices it. Redundancy is priced from the designed generator, UPS and
   transformer counts, then contingency, location, owner costs and escalation are applied. The divisions regroup
   exactly into the 13 cost lines.
-- **Greenfield** is one new build from scratch. **Fit-out** compares today's racks with a future-ready fit-out of the
-  same hall and with retrofitting later.
+- **Greenfield** is one new build from scratch.
 - **Liquid above 45 kW/rack.** Air tops out near 30 kW/rack and rear-door coolers near 45 kW; above that every design
   uses direct-to-chip liquid cooling automatically.
 - **Future-ready.** The hall is designed again at the target density; three paths are compared on present cost
   (escalated, discounted and weighted by the probability the target arrives).
-- **Schedule.** Build months scale with MW (greenfield 12 + 12 x sqrt(MW/100), fit-out 8 + 6 x sqrt(MW/100)); long
+- **Schedule.** Build months scale with MW (greenfield 12 + 12 x sqrt(MW/100)); long
   leads are reverse-scheduled from when each item is needed on site. Timing is in months from start, never calendar
   dates.
 
