@@ -162,14 +162,11 @@ def tab_costs(res):
 # ------------------------------------------------------------------ future-ready
 def tab_future(res):
     f = R.horizon(res)
-    _cp("Rack roadmap: 40-60 kW today · GB200/GB300 NVL72 about 120-140 kW (shipping) · Vera Rubin NVL144 about "
-        "190-230 kW (announced, 2H 2026) · Rubin Ultra NVL576 Kyber about 600 kW (announced, 2H 2027, 800 VDC) · "
-        "1 MW racks (speculative).")
+    _cp(f"Your day-one design: {R.day_one_density(res)}. " + R.ROADMAP_TEXT)
     if not f.get("active"):
         _in(f["reason"] + " Choose a 5, 10 or 15-year horizon in the sidebar to price future-proofing.")
         return
-    _mk(f"**Horizon: {f['horizon']}.** {f['horizon_text']} Target **{f['target_kw']:,.0f} kW/rack** installed in "
-                f"**year {f['year']}**, same {f['target_mw']:,.1f} MW IT"
+    _mk(f"**Horizon: {f['horizon']}.** {f['horizon_text']} **{E.target_sentence(f)}**, same {f['target_mw']:,.1f} MW IT"
                 + (f" (+{f['spare_pct']:.0%} spare utility capacity)" if f["spare_pct"] else "") +
                 f", about {f['target_racks']:,.0f} racks, {f['target_cooling']}.")
     t = R.future_table(res)

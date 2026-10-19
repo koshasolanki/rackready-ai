@@ -155,8 +155,9 @@ with st.sidebar:
     inputs["horizon"] = st.selectbox("Future-proof horizon", list(E.HORIZONS), key="w_horizon",
                                      format_func=lambda h: h if h == "Today only" else
                                      f"{h} · {E.HORIZONS[h]:,.0f} kW/rack",
-                                     help="Target rack density to be ready for. The model prices retrofit later, "
-                                          "provisions now, or full future build on day one.")
+                                     help="Planning window and the rack density to be ready for. The target racks "
+                                          "go in earlier, by default in year 3, 5 or 8 after ready for IT (change it "
+                                          "in Advanced). Prices retrofit later, provisions now or full build.")
 
     with st.expander("Advanced", expanded=False):
         inputs["project_name"] = st.text_input("Project name", key="w_name", help="Shown on reports.")
@@ -288,7 +289,7 @@ except Exception as e:  # clear error, never a stack trace
 h = R.headline(res)
 st.markdown("# ⚡ RackReady AI")
 st.markdown('<div class="rr-sub">Design, price and schedule an AI data center in seconds, '
-            'from today\'s 135 kW racks to tomorrow\'s 600 kW.</div>', unsafe_allow_html=True)
+            'from today\'s 135 kW GB300 racks to tomorrow\'s 600 kW.</div>', unsafe_allow_html=True)
 badges = [("🏗️ Greenfield new build" if gf else "🏢 Existing building fit-out"), h["platform"],
           f"{h['kw']:,.0f} kW/rack", f"{h['racks']:,} racks", f"{h['it_mw']:,.1f} MW IT", h["cooling"],
           inputs["region"], E.RESILIENCE[inputs["resilience"]].split(" (")[0],

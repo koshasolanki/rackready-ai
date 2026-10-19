@@ -1,6 +1,6 @@
 # ⚡ RackReady AI
 
-**Design, price and schedule an AI data center in seconds, from today's 135 kW racks to tomorrow's 600 kW.**
+**Design, price and schedule an AI data center in seconds, from today's 135 kW GB300 racks to tomorrow's 600 kW.**
 
 **Live app:** https://rackready-ai.streamlit.app · Built for the **Nebius x NVIDIA Global AI Hackathon** (2026)
 

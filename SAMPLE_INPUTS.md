@@ -10,7 +10,7 @@ Choose a preset in the sidebar, then change any input; results update automatica
 | Project type / size | Greenfield, 100 MW IT |
 | GPU platform | NVIDIA GB300 NVL72 (135 kW/rack, 155 kW peak, 72 GPUs) |
 | Location / redundancy | US - Northern Virginia / N+1 |
-| Future-proof horizon | 10 years (600 kW/rack, Kyber class, year 5) |
+| Future-proof horizon | 10 years (600 kW/rack Kyber-class target installed in year 5 after ready for IT) |
 
 Expected: **741 racks**, D2C liquid (auto, above 45 kW/rack), PUE **1.20**, utility **156 MVA**, **50** x 3 MW
 generators, **129** x 1 MW UPS modules, **30,024 tons**, **67 CDUs**, liquid flow **2,252 L/s**, 260,000 sf on 26.2 acres.
@@ -33,7 +33,8 @@ equipment is the critical path).
 Future-ready fit-out total **$358.2M** (27 MW IT, **$13.3M/MW**, D2C auto; every line ticked $1.37B). On a
 like-for-like construction basis it is $352.1M vs $39.0M to fit out for today's 3 MW; building for today and
 retrofitting in year 3 costs **$556.8M** including 4 months of downtime, so the verdict is **fit out
-future-ready now** (NPV $1.43B vs $0.46B). The new 42 MVA service needs large power transformers (about 128 weeks),
+future-ready now** (NPV $1.43B vs $0.46B). Payback **2.5 years**, counting $800.0M of GPU hardware plus $135.0M of
+AI network fabric in the investment, as greenfield does. The new 42 MVA service needs large power transformers (about 128 weeks),
 which set ready for IT at about 33–48 months from start.
 
 ## More scenarios

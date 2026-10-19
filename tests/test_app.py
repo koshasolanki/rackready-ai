@@ -134,3 +134,5 @@ def test_first_screen_terms_and_no_nagging():
     assert "MIT License" in captions and "See Terms of use" in captions
     assert not [i.value for i in at.info if "NEBIUS_API_KEY" in i.value]
     assert len(at.warning) <= 2  # one compact warnings block + the build hard stop
+    assert "Your day-one design: GB300 NVL72 about 135 kW/rack." in captions and "40-60 kW today" not in captions
+    assert any("a 600 kW/rack target installed in year 5 after ready for IT" in x.value for x in at.success)

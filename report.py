@@ -70,6 +70,22 @@ def cost_lines(res) -> dict:
     return res["design"]["cost_lines"] if res["mode"] == "greenfield" else res["cost_lines"]
 
 
+ROADMAP_TEXT = ("Rack roadmap: typical enterprise and earlier AI racks (H100/H200/B200 HGX class) about 40-60 kW · "
+                "GB200/GB300 NVL72 about 120-140 kW (shipping today) · Vera Rubin NVL144 about 190-230 kW (announced, "
+                "2H 2026) · Rubin Ultra NVL576 Kyber about 600 kW (announced, 2H 2027, 800 VDC) · 1 MW racks "
+                "(speculative).")
+
+
+def day_one_density(res) -> str:
+    """The selected platform's actual day-one rack density (and the existing racks for a fit-out)."""
+    x = res["design"] if res["mode"] == "greenfield" else res["future"]
+    name = res["inputs"]["platform"]
+    out = f"{name} about {x['kw']:,.0f} kW/rack"
+    if res["mode"] == "fitout":
+        out += f" (existing racks {res['current']['kw']:,.0f} kW/rack)"
+    return out
+
+
 def headline(res) -> dict:
     """Numbers for the one-screen summary. The total is always the sum of the ticked cost lines."""
     cl = cost_lines(res)
@@ -353,8 +369,7 @@ def markdown_report(res, narrative: str = "", narrative_src: str = "") -> str:
     f = horizon(res)
     out.append("## Future-ready horizon")
     if f.get("active"):
-        out += [f"Horizon **{f['horizon']}**: {f['horizon_text']} Target {f['target_kw']:,.0f} kW/rack installed in "
-                f"year {f['year']}; probability it is deployed here {f['probability']:.0%} (assumption). "
+        out += [f"Horizon **{f['horizon']}**: {f['horizon_text']} {E.target_sentence(f)}; probability it is deployed here {f['probability']:.0%} (assumption). "
                 f"Best path: **{f['best']}**.",
                 _md(future_table(res)), "### Day one vs target design", _md(compare_table(res), num_cols=("Day one", "Future target")),
                 "### Provisions", pd.DataFrame(f["provisions"]).rename(columns=str.title).to_markdown(index=False)]
@@ -486,7 +501,7 @@ def pdf_report(res) -> bytes:
     f = horizon(res)
     head("Future-ready horizon")
     if f.get("active"):
-        text(f"{f['horizon']}: {f['horizon_text']} Target {f['target_kw']:,.0f} kW/rack in year {f['year']} "
+        text(f"{f['horizon']}: {f['horizon_text']} {E.target_sentence(f)} "
              f"(probability {f['probability']:.0%}, assumption).", 7.5)
         rows = [["Path", "Day one $M", "Later $M", "Downtime mo", "Present cost $M"]] + [
             [("> " if x["path"] == f["best"] else "") + x["path"], f"{x['day1'] / M:,.0f}", f"{x['later_nominal'] / M:,.0f}",

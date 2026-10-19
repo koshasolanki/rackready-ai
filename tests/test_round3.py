@@ -155,3 +155,33 @@ def test_preset_totals_pinned():
 
 def test_units_and_design_line():
     r = E.run_model()
+
+
+def test_target_wording_every_horizon():
+    arrive = {"5 years": (230, 3), "10 years": (600, 5), "15 years": (1000, 8)}
+    for ptype in E.PROJECT_TYPES:
+        for hz, (kw, yr) in arrive.items():
+            r = E.run_model({"project_type": ptype, "horizon": hz})
+            phrase = f"a {kw:,} kW/rack target installed in year {yr} after ready for IT"
+            outputs = [r["recommendation"]["detail"], R.markdown_report(r), llm.fallback_narrative(r)]
+            if ptype == E.GREENFIELD:
+                assert r["recommendation"]["detail"].startswith(f"Lowest present cost over the {hz[:-6]}-year horizon")
+            for text in outputs:
+                assert phrase in text.replace("A " + phrase[2:], phrase), (ptype, hz)
+                assert not re.search(r"kW/rack by year", text)
+            assert E.summary_for_llm(r)["future_proof_horizon" if ptype == E.FITOUT else "future_ready"][
+                "target_in_words"] == phrase
+
+
+def test_roadmap_day_one_density():
+    assert "40-60 kW today" not in R.ROADMAP_TEXT and "typical enterprise" in R.ROADMAP_TEXT
+    for name, kw_text in [("100 MW AI campus (greenfield, GB300 NVL72)", "GB300 NVL72 about 135 kW/rack"),
+                          ("10 MW edge AI hall (greenfield, H200 HGX)", "H200 HGX about 42 kW/rack"),
+                          ("Existing-hall fit-out (200 racks, 15 kW -> GB300)",
+                           "GB300 NVL72 about 135 kW/rack (existing racks 15 kW/rack)")]:
+        assert R.day_one_density(E.run_model(E.PRESETS[name])) == kw_text
+    r = E.run_model({"platform": PL.CUSTOM, "custom_kw": 80})
+    assert R.day_one_density(r) == "Custom density about 80 kW/rack"
+    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app.py"),
+               encoding="utf-8").read()
+    assert "135 kW GB300 racks" in src

@@ -59,6 +59,8 @@ Rules:
   retrofit-later option. Name section 3 "## Upgrade path recommendation".
 - When future_ready / future_proof_horizon is present, explain the three paths (retrofit later,
   provisions now, full future build) and why the engine's lowest present cost wins; list the key provisions.
+  The horizon is the planning window; target_year counts years after ready for IT (say "a 600 kW/rack target
+  installed in year 5 after ready for IT", never "by year 10").
 - Use design_calculations to state the key engineering quantities (MVA, generators, UPS, tons, CDUs, flow,
   floor loading, PUE, water).
 - Mention any benchmark check outside its range and every warning, and the top active risks from
@@ -195,6 +197,7 @@ def complete_narrative(payload: dict, api_key: str, base_url: str = DEFAULT_BASE
 
 def fallback_narrative(res: dict) -> str:
     """Rule-based narrative from the same engine output (used when no LLM is available)."""
+    import engine as E
     import guide as G
     import report as R
 
@@ -241,7 +244,7 @@ def fallback_narrative(res: dict) -> str:
         out.append(f"Fit out future-ready now: NPV {R.money(up['npv_a'])}. Keep today's racks and retrofit later: NPV "
                    f"{R.money(up['npv_b'])}. Recommended: **{up['recommended']}**.")
     if f.get("active"):
-        out.append(f"Horizon {f['horizon']}: {f['target_kw']:,.0f} kW/rack in year {f['year']}. Present cost: " +
+        out.append(f"Horizon {f['horizon']}: {E.target_phrase(f)}. Present cost: " +
                    "; ".join(f"{p['path'].lower()} {R.money(p['pv_total'])}" for p in f["paths"]) +
                    f". Lowest: **{f['best']}**.")
         if "provisions" in f["best"]:

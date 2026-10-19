@@ -762,21 +762,32 @@ def _hz(h):
     return h.replace(" years", "-year") if h and h[0].isdigit() else h
 
 
+def target_phrase(f) -> str:
+    """The future target in words. The horizon is the planning window; the target racks go in earlier, in year
+    f['year'] after ready for IT (defaults 3, 5, 8), e.g. 10-year horizon -> 600 kW/rack installed in year 5."""
+    return f"a {f['target_kw']:,.0f} kW/rack target installed in year {f['year']} after ready for IT"
+
+
+def target_sentence(f) -> str:
+    t = target_phrase(f)
+    return t[0].upper() + t[1:]
+
+
 def recommendation(res):
     if res["mode"] == "greenfield":
         d, f = res["design"], res["future"]
         pb = d["payback"]
         econ = "" if pb is not None else " It does not pay back within the analysis period."
         if f["active"]:
-            return {"headline": f["best"], "detail": f"Lowest present cost for the {_hz(f['horizon'])} horizon "
-                    f"({f['target_kw']:,.0f} kW/rack by year {f['year']}).{econ}"}
+            return {"headline": f["best"], "detail": f"Lowest present cost over the {_hz(f['horizon'])} horizon, "
+                    f"with {target_phrase(f)}.{econ}"}
         return {"headline": "Build as designed", "detail": f"{f['reason']}{econ}"}
     up, f = res["upgrade"], res["future_paths"]
     head = up["recommended"]
     det = (f"NPV {_money(up['npv_a'])} vs {_money(up['npv_b'])} for keeping {res['current']['kw']:.0f} kW racks and "
            f"retrofitting in year {up['year']}.")
     if f["active"]:
-        det += f" For the {_hz(f['horizon'])} horizon: {f['best'].lower()}."
+        det += f" For the {_hz(f['horizon'])} horizon ({target_phrase(f)}): {f['best'].lower()}."
     return {"headline": head, "detail": det}
 
 
@@ -830,6 +841,7 @@ def summary_for_llm(res: dict) -> dict:
     fp = None
     if fut.get("active"):
         fp = {"horizon": fut["horizon"], "target_kw_per_rack": fut["target_kw"], "target_year": fut["year"],
+              "target_in_words": target_phrase(fut),
               "paths_usd": [{"path": x["path"], "day_one": round(x["day1"]), "later_nominal": round(x["later_nominal"]),
                              "downtime_months": x["downtime_months"], "present_cost": round(x["pv_total"])}
                             for x in fut["paths"]],
