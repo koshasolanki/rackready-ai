@@ -29,21 +29,12 @@ payback **6.7 years**. Build auto 15.8 months; ready for IT about 26–38 months
 equipment is the critical path).
 5-year horizon (230 kW): provisions now **$44M** vs retrofit later $65M vs full build $49M.
 
-## Preset 3: existing-hall fit-out, 200 racks, 15 kW air to GB300 NVL72
-Future-ready fit-out total **$358.2M** (27 MW IT, **$13.3M/MW**, D2C auto; every line ticked $1.37B). On a
-like-for-like construction basis it is $352.1M vs $39.0M to fit out for today's 3 MW; building for today and
-retrofitting in year 3 costs **$556.8M** including 4 months of downtime, so the verdict is **fit out
-future-ready now** (NPV $1.43B vs $0.46B). Payback **2.5 years**, counting $800.0M of GPU hardware plus $135.0M of
-AI network fabric in the investment, as greenfield does. The new 42 MVA service needs large power transformers (about 128 weeks),
-which set ready for IT at about 33–48 months from start.
-
 ## More scenarios
 | Scenario | Inputs | Expected |
 |---|---|---|
 | D2C switch | Greenfield, Custom density 40 then 50 kW/rack, 20 MW, Dallas, Hybrid chosen | 40 kW: Hybrid, PUE 1.35, $18.2M/MW. 50 kW: D2C selected automatically (warning shown), PUE 1.20, $19.3M/MW |
 | Premium 2N | Greenfield, 50 MW GB200 NVL72, Singapore, 2N, 15-year horizon | $1.79B ($35.8M/MW), 44 generators, provisions now recommended |
 | Kyber campus | Greenfield, 200 MW Rubin Ultra NVL576 (Kyber), Phoenix | 334 racks at 600 kW, $6.52B ($32.6M/MW), 313 MVA (transmission-level substation warning), roadmap warning |
-| Colo upgrade | Fit-out, 100 racks, 12 kW to B200 HGX, Dallas | $15.1M current vs $72.7M future-ready like-for-like ($74.0M total, $13.0M/MW); fit out future-ready now |
 
 ## 60-second demo script
 1. Default preset: the four cards (total, cost per MW, payback, ready-for-IT months) and the one-line verdict.
@@ -54,5 +45,5 @@ which set ready for IT at about 33–48 months from start.
 6. **Codes & procurement**: latest code editions, Confirm locally and US lead times.
 7. **Build & commission**: the liquid-loop hard stop, L1-L5 and IST scenarios; download the checklist PDF.
 8. Sidebar: Custom density 40 kW, then 50 kW: the cooling locks to D2C above 45 kW.
-9. Preset: existing-hall fit-out: current vs future-ready vs retrofit later.
+9. Preset: 10 MW edge AI hall (H200 HGX): rear-door hybrid cooling, $188.1M, provisions now for the 5-year horizon; one-click PDF, report and CSV exports.
 10. Open the narrative written by NVIDIA Nemotron on Nebius Token Factory and download the one-page PDF.

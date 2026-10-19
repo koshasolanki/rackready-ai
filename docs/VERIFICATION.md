@@ -105,8 +105,8 @@ N = need - max(RFQ month, 0); "Order before NTP" when the PO month falls before 
 are shown. The ready-for-IT range runs from the short lead times with no weather allowance to the long lead times with
 10% more weather allowance (100 MW default: about 41–51 months from start, typical 43).
 
-**Phase model (assumptions, editable):** auto build = 12 + 12 x sqrt(MW/100) months (greenfield, 12-40) or
-8 + 6 x sqrt(MW/100) (fit-out, 8-24): 24 months at 100 MW agrees with the public 18-30 month NTP-to-completion range
+**Phase model (assumptions, editable):** auto build = 12 + 12 x sqrt(MW/100) months (greenfield, 12-40):
+24 months at 100 MW agrees with the public 18-30 month NTP-to-completion range
 for 100 MW-class builds. Pre-construction: site studies (ESA 4-6 wk, geotech 6-10, survey and title 4-8, wetlands
 8-16) and utility agreement (3-6 months review + 3-9 months agreement) in parallel with design; permits 4 months from
 60% design; contractor selection 3 months. Overtime factor = 40 / (hours x productivity) with productivity 0.965 at
@@ -218,8 +218,7 @@ the model always uses direct-to-chip liquid cooling. Immersion is a niche option
 
 ## 9. End-to-end cost lines and the "Include in total" checklist
 
-The total and the cost per MW are always the sum of the ticked lines (tested with random tick sets on every preset,
-greenfield and fit-out). The same total is used in the summary cards, the Costs tab, the Nemotron payload, the
+The total and the cost per MW are always the sum of the ticked lines (tested with random tick sets on every preset). The same total is used in the summary cards, the Costs tab, the Nemotron payload, the
 rule-based narrative, the one-page PDF, the Markdown report and the CSV exports.
 
 | # | Line | Default | How it is priced | Status / source type |
@@ -240,14 +239,12 @@ rule-based narrative, the one-page PDF, the Markdown report and the CSV exports.
 
 **Greenfield carve.** Lines 1, 2 (site part), 3 (substation part), 7, 8, 9, 10 (design part), 11 and 12 (embedded
 contingency) are regrouped from the facility estimate, so they add back exactly to the facility cost (tested). Only
-spares, the interconnect allowance, land and (for HGX-type platforms) racks and rack PDUs are new money. Fit-out
-lines regroup the fit-out construction cost the same way (tested).
+spares, the interconnect allowance, land and (for HGX-type platforms) racks and rack PDUs are new money.
 
 | Preset | Default ticks | Per MW | Every line ticked | Per MW |
 |---|---|---|---|---|
 | 100 MW GB300 NVL72 greenfield | $2,328.2M | $23.28M | $6,076.2M | $60.76M |
 | 10 MW H200 HGX greenfield | $188.1M | $18.81M | $561.6M | $56.16M |
-| 200-rack fit-out to GB300 (27 MW) | $358.2M | $13.27M | $1,369.9M | $50.74M |
 
 ## 10. Codes and standards: editions checked on the publishers' sites (October 2026)
 
@@ -379,7 +376,6 @@ multinational with no category-specific US source; two makers whose sources cove
 | One verdict wording | "Verdict" on the first screen, PDF, Markdown and narrative; payback shown once; the narrative uses the price-change input instead of a fixed value | `tests/test_app.py`, `tests/test_round3.py` |
 | Disclaimer | Once on the first screen, once in the footer, in the Terms of use and in every export; no repeated warnings | `tests/test_app.py::test_first_screen_terms_and_no_nagging` |
 | Terms of use | TERMS.md identical to the in-app text and covers every required point | `tests/test_terms.py` |
-| Preset totals after QA | 100 MW GB300: $2,328.2M ($23.28M/MW; $6,076.2M all lines) · 10 MW H200: $188.1M ($18.81M/MW; $561.6M) · fit-out: $358.2M ($13.27M/MW; $1,369.9M) | `tests/test_round3.py` |
+| Preset totals after QA | 100 MW GB300: $2,328.2M ($23.28M/MW; $6,076.2M all lines) · 10 MW H200: $188.1M ($18.81M/MW; $561.6M) | `tests/test_round3.py` |
 | Future target wording | The horizon is the planning window; the target racks go in earlier, in year 3, 5 or 8 after ready for IT (5, 10, 15-year horizons; editable). Every output says e.g. "a 600 kW/rack target installed in year 5 after ready for IT" | `tests/test_round3.py::test_target_wording_every_horizon` |
 | Day-one density vs roadmap | The Future-ready roadmap starts with the selected platform's own day-one density (e.g. GB300 NVL72 about 135 kW/rack, H200 HGX about 42 kW/rack) and labels 40-60 kW as typical enterprise and earlier AI racks | `tests/test_round3.py::test_roadmap_day_one_density` |
-| Fit-out payback | 2.5 years: the investment counts GPU hardware ($800.0M) plus AI network fabric ($135.0M), as greenfield does. Before the cost checklist was added the fit-out ROI left out the fabric and showed 2.2 years | `tests/test_round3.py::test_preset_totals_pinned` |

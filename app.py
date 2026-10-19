@@ -381,8 +381,7 @@ with st.expander("📘 How it works"):
     st.markdown("""
 - **Design first, then cost.** Standard engineering formulas size the power, cooling, fire, water, network and
   land; a per-MW cost basis for the platform prices the build (redundancy, location, contingency, escalation).
-- **Greenfield or fit-out.** Greenfield is one new campus from scratch. Fit-out compares today's racks with a
-  future-ready fit-out of the same hall and with retrofitting later.
+- **Greenfield.** Greenfield is one new campus from scratch.
 - **Liquid above 45 kW/rack.** Air tops out near 30 kW/rack and rear-door coolers near 45 kW; above that every
   design uses direct-to-chip liquid cooling.
 - **Future-ready.** For a 5, 10 or 15-year horizon it prices retrofit later vs provisions now vs full future
