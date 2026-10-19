@@ -22,12 +22,16 @@ import math
 from copy import deepcopy
 
 import buildcx as CX
+import costlines as CL
 import design as DS
+import guide as G
 import platforms as PL
 from design import AIR, COOLING_TYPES, D2C, D2C_AUTO_KW, HYBRID, effective_cooling
 
 D2C_NOTE = "D2C auto-selected above 45 kW/rack"
-DISCLAIMER = "Indicative planning estimate, not a bid."
+DISCLAIMER = "Early budget estimate (±30–50%), not a bid."
+ESTIMATE_NOTE = ("Early budget estimate (±30–50%): built from per-MW benchmarks and design quantities before any "
+                 "drawings exist, so the final cost can land well above or below it.")
 HOURS = 8760
 
 FITOUT, GREENFIELD = "Existing building fit-out", "Greenfield (new build)"
@@ -136,13 +140,15 @@ DEFAULT_INPUTS = {
     "contingency": 0.08, "owner_pct": 0.03, "escalation": 0.05, "land_per_acre": None,
     "interconnect": None, "months_to_power": 36, "design_months": 9, "construction_months": None,
     # schedule (None / 0 = auto from MW)
-    "project_start": None, "fitout_build_months": None, "overtime_hours": 40, "weather_factor": 0.05,
+    "fitout_build_months": None, "overtime_hours": 40, "weather_factor": 0.05,
     "congestion_factor": 0.0,
     # engineering
     "fuel_hours": 48.0, "battery_min": 5.0, "voltage": 415.0, "tcs_dT": 10.0,
     # future-proof horizon
     "future_kw": None, "future_year": None, "spare_utility_pct": 0.0, "future_probability": 0.70,
     "overhead_pct": 0.15,
+    # "Include in total" checklist (see costlines.py); None = defaults
+    "include": None,
 }
 
 PRESETS = {
@@ -318,21 +324,20 @@ def run_greenfield(i: dict) -> dict:
     sch, cx = _plan(i, p, it_mw, racks, dz, gf=True,
                     horizon_active=bool((i.get("future_kw") or HORIZONS.get(h) or 0) > p["kw"]))
     esc = (c["facility"] + c["owner"]) * _esc(i, sch["mid_point_months"])
-    capex = c["facility"] + c["owner"] + esc + c["land"] + c["interconnect"]
-    lines = {"Facility construction (incl. GC, contingency, location)": c["facility"],
-             "Owner costs (permits, owner's team, insurance during build)": c["owner"],
-             f"Escalation to construction mid-point ({sch['mid_point_months']:.0f} months)": esc,
-             f"Land ({dz['v']['land_acres']:,.1f} acres at ${land_price:,.0f}/acre)": c["land"],
-             "Utility interconnection (utility-side works, deposits)": c["interconnect"]}
+    construction = c["facility"] + c["owner"] + esc + c["land"] + c["interconnect"]
     # IT and economics
     gpus = racks * p["gpus"]
     it_hw = racks * p["it_per_rack"]
-    fabric = p["fabric_per_mw"] * it_mw if i.get("include_fabric", True) else 0.0
-    it_total = (it_hw + fabric) if i.get("include_it", True) else 0.0
-    eco = _economics(i, it_mw, dz, capex, c["facility"], gpus, _gpu_price(i, p), it_total)
+    fabric = p["fabric_per_mw"] * it_mw
+    cl = CL.greenfield_lines(c, dz, p, it_mw, it_mw * 1000 / kw, esc, it_hw, fabric, i.get("include"))
+    capex = cl["total"]
+    lines = {r["label"]: r["amount"] for r in cl["rows"] if r["included"]}
+    it_total = _it_total(i, cl, it_hw, fabric)
+    eco = _economics(i, it_mw, dz, cl["non_it_total"], c["facility"], gpus, _gpu_price(i, p), it_total)
     fut = future_paths(i, p, it_mw, cooling, dz, mode="greenfield", day1_cost=c, eco=eco)
     d = {"platform": p, "kw": kw, "racks": racks, "it_mw": it_mw, "cooling": cooling, "cooling_auto": auto,
-         "design": dz, "cost": c, "lines": lines, "escalation": esc, "capex": capex,
+         "design": dz, "cost": c, "lines": lines, "escalation": esc, "capex": capex, "cost_lines": cl,
+         "construction_basis": construction, "capex_all": cl["total_all"],
          "facility_per_mw": c["facility"] / it_mw, "capex_per_mw": capex / it_mw,
          "gsf": dz["v"]["gross_sf"], "facility_per_gsf": c["facility"] / dz["v"]["gross_sf"],
          "gpus": gpus, "it_hw": it_hw, "fabric": fabric, "schedule": sch, **eco}
@@ -341,6 +346,14 @@ def run_greenfield(i: dict) -> dict:
     res["checks"] = benchmark_checks(res)
     res["recommendation"] = recommendation(res)
     return res
+
+
+def _it_total(i, cl, it_hw, fabric):
+    """IT in the ROI: ticked IT lines always count; 'Include GPU / IT hardware in ROI' adds them too."""
+    inc = cl["include"]
+    roi = bool(i.get("include_it", True))
+    return ((it_hw if (roi or inc["gpu"]) else 0.0) +
+            (fabric if ((roi and i.get("include_fabric", True)) or inc["fabric"]) else 0.0))
 
 
 def _economics(i, it_mw, dz, capex, facility, gpus, price, it_total):
@@ -587,14 +600,25 @@ def run_fitout(i: dict) -> dict:
     for s, pp in ((cur, cur_p), (fut, p)):
         dz = _design(pp, s["racks"], s["cooling"], i, 0.0, gsf_per_mw=s["gsf"] / max(s["it_mw"], 1e-9))
         s["design"] = dz
-        eco = _economics(i, s["it_mw"], dz, s["capex"], s["capex"], s["gpus"], s["gpu_price"], s["gpu_hw"])
+    new_service = fut["design"]["v"]["service_mva"] > cur["design"]["v"]["service_mva"] * 1.1
+    inter = (float(i["interconnect"]) if i.get("interconnect") is not None
+             else 80_000 * fut["design"]["v"]["service_mw"] if new_service else 0.0)
+    cl = CL.fitout_lines(fut, p, i, FITOUT_RATES, REGIONS[i["region"]]["factor"], inter, i.get("include"))
+    fut["cost_lines"] = cl
+    fut["construction_cost"] = fut["capex"]
+    fut["checked_total"] = cl["total"]
+    fut_it = _it_total(i, cl, cl["rows"][CL.KEYS.index("gpu")]["amount"], cl["rows"][CL.KEYS.index("fabric")]["amount"])
+    for s in (cur, fut):
+        if s is fut:
+            eco = _economics(i, s["it_mw"], s["design"], cl["non_it_total"], s["capex"], s["gpus"], s["gpu_price"], fut_it)
+        else:
+            eco = _economics(i, s["it_mw"], s["design"], s["capex"], s["capex"], s["gpus"], s["gpu_price"], s["gpu_hw"])
         s.update(eco)
     up = _retrofit(cur, fut, i)
     fut_paths = future_paths(i, p, fut["it_mw"], fut["cooling"], fut["design"], mode="fitout", fit=fut)
     sch, cx = _plan(i, p, fut["it_mw"], fut["racks"], fut["design"], gf=False,
-                    needs_new_service=fut["design"]["v"]["service_mva"] > cur["design"]["v"]["service_mva"] * 1.1,
-                    horizon_active=bool(fut_paths.get("active")))
-    res = {"mode": "fitout", "inputs": i, "platform": p, "current": cur, "future": fut, "upgrade": up,
+                    needs_new_service=new_service, horizon_active=bool(fut_paths.get("active")))
+    res = {"mode": "fitout", "inputs": i, "platform": p, "current": cur, "future": fut, "upgrade": up, "cost_lines": cl,
            "future_paths": fut_paths, "long_lead": LONG_LEAD, "schedule": sch, "cx": cx}
     res["warnings"] = _warnings(res)
     res["checks"] = benchmark_checks(res)
@@ -778,12 +802,23 @@ def summary_for_llm(res: dict) -> dict:
         "notice_to_proceed_month": round(S["ntp"], 1), "build_months": round(S["build_months"], 1),
         "energization_start_month": round(S["energization"], 1), "commissioning_start_month": round(S["cx_start"], 1),
         "substantial_completion_month": round(S["sc"], 1), "critical_path": S["critical_path"],
-        "order_by": [{"item": x["item"], "rfq_by_month": round(x["rfq"], 1), "po_by_month": round(x["po"], 1),
-                      "need_month": round(x["need"], 1), "flag": x["flag"]} for x in S["items"]]}
+        "ready_for_it": S["range_text"], "ready_for_it_months_low": round(S["sc_low"], 1),
+        "ready_for_it_months_high": round(S["sc_high"], 1),
+        "order_by": [{"item": x["item"], "send_rfq_months_after_start": round(max(x["rfq"], 0.0), 1),
+                      "place_po_months_after_start": round(max(x["po"], 0.0), 1),
+                      "needed_months_after_start": round(x["need"], 1),
+                      "order_months_before_needed": round(x["order_ahead"]), "flag": x["flag"]} for x in S["items"]]}
     base["risk_register"] = [{"category": r["category"], "mitigation": r["mitigation"], "owner": r["owner"],
                               "impact_months": f"{r['impact_low']}-{r['impact_high']}"}
                              for r in res["cx"]["risks"] if r["active"]]
-    base["estimate_class"] = CX.ESTIMATE_LABEL
+    base["estimate_accuracy"] = CX.ESTIMATE_LABEL
+    cl = res["design"]["cost_lines"] if res["mode"] == "greenfield" else res["cost_lines"]
+    base["cost_lines"] = [{"line": r["label"], "usd": round(r["amount"]), "included": r["included"]} for r in cl["rows"]]
+    base["total_capex_usd"] = round(cl["total"])
+    base["total_capex_usd_per_mw_it"] = round(cl["per_mw"])
+    base["total_if_every_line_ticked_usd"] = round(cl["total_all"])
+    base["how_to_avoid_delays"] = G.HOW_TO_AVOID
+    base["legal"] = G.LEGAL
     base["commissioning"] = {"levels": [c["level"] + " " + c["name"] for c in CX.CX_LEVELS], "hard_stop": CX.HARD_STOP,
                              "load_banks": res["cx"]["load_banks"]["notes"][:2]}
     fut = res["future"] if res["mode"] == "greenfield" else res["future_paths"]
@@ -801,8 +836,7 @@ def summary_for_llm(res: dict) -> dict:
                 "it_mw": round(d["it_mw"], 2), "cooling": d["cooling"],
                 "cooling_rule": D2C_NOTE if d["cooling_auto"] else "user choice (<= 45 kW/rack)",
                 "design_calculations": key_design(d["design"]),
-                "capex_usd": {k: round(v) for k, v in d["lines"].items()},
-                "total_capex_usd": round(d["capex"]), "facility_usd_per_mw_it": round(d["facility_per_mw"]),
+                "facility_usd_per_mw_it": round(d["facility_per_mw"]),
                 "it_hardware_usd": round(d["it_total"]),
                 "opex_usd_per_year": round(d["opex"]), "revenue_year1_usd": round(d["revenue"]),
                 "gpu_price_per_hr": d["gpu_price"], "npv_usd": round(d["npv"]),
@@ -813,7 +847,7 @@ def summary_for_llm(res: dict) -> dict:
 
     def s(x):
         return {"racks": x["racks"], "kw_per_rack": x["kw"], "cooling": x["cooling"], "it_mw": round(x["it_mw"], 2),
-                "capex_usd": round(x["capex"]), "capex_per_mw_usd": round(x["capex_per_mw"]),
+                "construction_cost_like_for_like_usd": round(x["capex"]), "construction_per_mw_usd": round(x["capex_per_mw"]),
                 "opex_usd": round(x["opex"]), "revenue_usd": round(x["revenue"]),
                 "payback_years": None if x["payback"] is None else round(x["payback"], 1),
                 "design_calculations": key_design(x["design"])}

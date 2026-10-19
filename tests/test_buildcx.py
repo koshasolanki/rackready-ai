@@ -11,6 +11,7 @@ import buildcx as CX
 import design as DS
 import engine as E
 import llm
+import procurement as PR
 import report as R
 
 GB = E.PRESETS[E.DEFAULT_PRESET]
@@ -234,9 +235,9 @@ def test_provisions_have_reasons(res):
     assert any(x["provision"] == "800 VDC readiness" for x in prov)
 
 
-def test_estimate_class_and_labels(res):
-    assert "Class 5" in CX.ESTIMATE_LABEL and "-20% to -50%" in CX.ESTIMATE_LABEL
-    assert len(R.aace_table()) == 5
+def test_estimate_wording_and_labels(res):
+    assert CX.ESTIMATE_LABEL.startswith("Early budget estimate (±30–50%)")
+    assert not hasattr(CX, "AACE_CLASSES")
     assert E.RESILIENCE["N"].startswith("N (Tier I-style")
 
 
@@ -246,12 +247,15 @@ def test_exports_include_build_tables(pre):
     r = E.run_model(E.PRESETS[pre])
     t = R.all_tables(r)
     for k in ("order_by", "gantt", "risks", "cx_levels", "ist_scenarios", "handoff_feeds", "it_readiness",
-              "checklists", "stage_gates", "spec_reference", "estimate_classes"):
+              "checklists", "stage_gates", "spec_reference", "codes_and_standards", "confirm_locally",
+              "us_procurement", "procurement_suppliers", "delays_and_fixes", "how_it_works"):
         assert k in t and len(t[k]) > 0, k
     pdf = R.checklist_pdf(r)
     assert pdf[:4] == b"%PDF" and len(re.findall(rb"/Type\s*/Page[^s]", pdf)) >= 3
     md = R.markdown_report(r)
-    assert "## Build & commission" in md and "Order-by dates" in md and "Class 5" in md
+    assert "## Build & commission" in md and "When to order" in md and "Early budget estimate" in md
+    for banned in ("Class 5", "AACE", "concept", "screening", "based on these codes"):
+        assert banned.lower() not in md.lower(), banned
 
 
 NAMES = re.compile(r"\b(JLL|Cushman|Wakefield|Turner & Townsend|Uptime Institute|Wood Mackenzie|Schneider|Vertiv|"
@@ -259,27 +263,47 @@ NAMES = re.compile(r"\b(JLL|Cushman|Wakefield|Turner & Townsend|Uptime Institute
                    r"Kohler|Mitsubishi|Hitachi|Procore|Primavera|P6)\b")
 
 
+PROC_TABLES = ("us_procurement", "procurement_suppliers")
+
+
+def _strip_procurement(md: str) -> str:
+    """Supplier names are allowed only in the US procurement section."""
+    a = md.find("## US procurement")
+    b = md.find("\n## ", a + 5)
+    return md if a < 0 else md[:a] + (md[b:] if b > 0 else "")
+
+
 @pytest.mark.parametrize("pre", list(E.PRESETS))
 def test_no_company_names_in_outputs(pre):
     r = E.run_model(E.PRESETS[pre])
-    parts = [R.markdown_report(r), llm.fallback_narrative(r), llm.SYSTEM_PROMPT, str(E.summary_for_llm(r))]
-    parts += [df.to_csv(index=False) for df in R.all_tables(r).values()]
+    parts = [_strip_procurement(R.markdown_report(r)), llm.fallback_narrative(r), llm.SYSTEM_PROMPT,
+             str(E.summary_for_llm(r))]
+    parts += [df.to_csv(index=False) for k, df in R.all_tables(r).items() if k not in PROC_TABLES]
     text = "\n".join(parts)
     m = NAMES.search(text)
     assert m is None, text[max(0, m.start() - 80): m.end() + 80]
+    supplier_names = re.compile("|".join(r"\b" + re.escape(n) + r"(?![\w])" for n in PR.S))
+    m = supplier_names.search(text)
+    assert m is None, text[max(0, m.start() - 80): m.end() + 80]
 
 
-def test_no_company_names_in_docs():
+def test_names_only_in_procurement():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    supplier_names = re.compile("|".join(r"\b" + re.escape(n) + r"(?![\w])" for n in PR.S))
     for f in ("README.md", "SAMPLE_INPUTS.md", "docs/VERIFICATION.md", "buildcx.py", "design.py", "engine.py",
-              "platforms.py", "ui_views.py", "report.py", "llm.py", "app.py"):
-        m = NAMES.search(open(os.path.join(root, f), encoding="utf-8").read())
-        assert m is None, (f, m.group(0))
+              "platforms.py", "ui_views.py", "report.py", "llm.py", "app.py", "codes.py", "costlines.py", "guide.py"):
+        text = open(os.path.join(root, f), encoding="utf-8").read()
+        if f == "docs/VERIFICATION.md":
+            text = _strip_procurement(text)
+        for rx in (NAMES, supplier_names):
+            m = rx.search(text)
+            assert m is None, (f, m.group(0))
 
 
 def test_llm_payload_has_schedule_and_risks(res):
     pl = E.summary_for_llm(res)
     assert pl["schedule"]["substantial_completion_month"] == pytest.approx(res["cx"]["schedule"]["sc"], abs=0.05)
-    assert pl["schedule"]["order_by"] and pl["risk_register"] and "Class 5" in pl["estimate_class"]
+    assert pl["schedule"]["order_by"] and pl["risk_register"] and "±30–50%" in pl["estimate_accuracy"]
+    assert pl["schedule"]["ready_for_it"].endswith("months from start")
     import json
     json.dumps(pl)

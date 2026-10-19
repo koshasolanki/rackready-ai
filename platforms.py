@@ -73,7 +73,7 @@ _MIX = {
     "RUBIN": [0.077451, 0.004902, 0.068627, 0.007843, 0.04902, 0.001961, 0.039216, 0.011765, 0.009804,
               0.006863, 0.04902, 0.002941, 0.017647, 0.019608, 0.223529, 0.014706, 0.309804, 0.021569,
               0.014706, 0.017647, 0.015686, 0.015686],
-    "TPU": [0.081755, 0.004985, 0.065803, 0.007976, 0.047856, 0.001994, 0.044865, 0.011964, 0.011964,
+    "ASIC": [0.081755, 0.004985, 0.065803, 0.007976, 0.047856, 0.001994, 0.044865, 0.011964, 0.011964,
             0.007976, 0.03988, 0.002991, 0.017946, 0.01994, 0.219342, 0.014955, 0.302094, 0.024925,
             0.014955, 0.01994, 0.017946, 0.017946],
     "KYBER": [0.08563, 0.004921, 0.076772, 0.007874, 0.052165, 0.001969, 0.033465, 0.011811, 0.007874,
@@ -136,12 +136,12 @@ P = {
         white_sf=40, fabric_per_mw=8_000_000, gpu_hr=3.00, mix=_MIX["KYBER"],
         spec_note="NVIDIA GTC 2025: about 600 kW per rack, 2H 2027, 576 GPU dies, 800 VDC power with a "
                   "sidecar. Rack width (rack + power sidecar), weight, price and rental rate are estimates."),
-    "TPU Ironwood": dict(
-        label="Google TPU Ironwood (estimated)", status="estimated", year=2025,
+    "ASIC rack (estimated)": dict(
+        label="Custom AI accelerator (ASIC) rack (estimated)", status="estimated", year=2025,
         kw=100.0, kw_peak=110.0, gpus=64, it_per_rack=1_600_000, weight_lb=2_800, rack_w_m=0.6, rack_d_m=1.2,
         liquid=0.90, cdu_mw=1.5, rate=19_000_000, low=17_500_000, high=25_000_000, gsf_per_mw=2_900,
-        white_sf=32, fabric_per_mw=6_000_000, gpu_hr=3.00, mix=_MIX["TPU"],
-        spec_note="Google-specified liquid-cooled racks; facility interface follows Google's spec. kW, "
+        white_sf=32, fabric_per_mw=3_500_000, gpu_hr=3.00, mix=_MIX["ASIC"],
+        spec_note="Accelerator-maker-specified liquid-cooled racks; the facility interface follows that spec. kW, "
                   "price and rental rate are estimates (no public per-rack spec)."),
 }
 for _k, _v in P.items():
@@ -158,7 +158,7 @@ DEFAULT_PLATFORM = "GB300 NVL72"
 AIR_ANCHOR_KW = 15.0
 AIR_ANCHOR_RATE = 12_000_000
 
-# NVIDIA ladder used for custom densities (TPU excluded: Google-specific)
+# NVIDIA ladder used for custom densities (custom ASIC racks excluded: maker-specific)
 LADDER = ["H100 HGX", "H200 HGX", "B200 HGX", "GB200 NVL72", "GB300 NVL72", "Vera Rubin NVL144",
           "Rubin Ultra NVL576 (Kyber)"]
 

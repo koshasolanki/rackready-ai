@@ -17,11 +17,13 @@ import streamlit as st
 # Force-reload local modules so a hot redeploy never mixes old and new code.
 import importlib as _il
 import platforms as _pl, design as _ds, buildcx as _cx, engine as _engine, report as _rep, llm as _llm, ui_common as _uic, ui_views as _uiv
-for _m in (_pl, _ds, _cx, _engine, _rep, _llm, _uic, _uiv):
+import guide as _gd, codes as _cd, costlines as _cl, procurement as _pr
+for _m in (_pl, _ds, _gd, _cd, _cx, _cl, _engine, _pr, _rep, _llm, _uic, _uiv):
     _il.reload(_m)
 
 import buildcx as CX
 import engine as E
+import guide as G
 import platforms as PL
 import report as R
 import ui_views as V
@@ -115,7 +117,7 @@ def cooling_widget(container, label, kw, key, help_):
 inputs: dict = {}
 with st.sidebar:
     st.markdown("### ⚡ RackReady AI")
-    st.caption("Indicative planning estimate, not a bid. Results update as you type.")
+    st.caption("Early budget estimate (±30–50%), not a bid. Results update as you type.")
     st.selectbox("Start from a preset", list(E.PRESETS), key="w_preset", on_change=_on_preset,
                  help="Loads a typical project. You can then change any input.")
     inputs["project_type"] = st.radio(
@@ -215,7 +217,6 @@ with st.sidebar:
                                      help="0 = scales with MW: 8 + 6 x sqrt(MW/100), 8-24 months."))
             inputs["fitout_build_months"] = fb or None
         st.markdown("**Schedule factors**")
-        inputs["project_start"] = st.date_input("Project start (go decision)", help="Month 0 for order-by dates.")
         c1, c2 = st.columns(2)
         inputs["overtime_hours"] = int(c1.selectbox("Work week (hours)", [40, 50, 60, 70], 0, key="w_ot",
                                                     help="Overtime shortens field work but loses productivity "
@@ -273,6 +274,8 @@ with st.sidebar:
         regen = st.button("↻ Regenerate narrative", width="stretch", help="Ask the model again.")
 
 # ----------------------------------------------------------------- engine
+V.init_include_state()
+inputs["include"] = V.include_from_state()
 try:
     res = E.run_model(inputs)
     payload = E.summary_for_llm(res)
@@ -368,7 +371,8 @@ d3.download_button("⬇ Tables (CSV zip)", zbuf.getvalue(), file_name="rackready
 
 # ----------------------------------------------------------------- tabs
 tabs = st.tabs(["💰 Costs", "🔮 Future-ready", "📐 Design calculations", "📈 Operations & ROI",
-                "🗓️ Schedule & risks", "🏗️ Build & commission", "📚 Assumptions & sources"])
+                "🗓️ Schedule & risks", "🏗️ Build & commission", "📜 Codes & procurement",
+                "📚 Assumptions & sources"])
 with tabs[0]:
     V.tab_costs(res)
 with tabs[1]:
@@ -382,6 +386,8 @@ with tabs[4]:
 with tabs[5]:
     V.tab_build(res)
 with tabs[6]:
+    V.tab_codes(res)
+with tabs[7]:
     V.tab_assumptions(res)
 
 with st.expander("📘 How it works"):
@@ -401,7 +407,17 @@ Above 45 kW/rack every design uses direct-to-chip liquid cooling, set automatica
 **Future-proof horizon.** Choose 5, 10 or 15 years (Vera Rubin, Kyber, 1 MW-class racks). The model prices
 retrofit later vs provisions now vs full future build on day one and recommends the lowest present cost.
 
+**End-to-end cost checklist.** The Costs tab lists 13 cost lines from land to spares. Tick a line to include it;
+the total and cost per MW are always the sum of the ticked lines, everywhere in the app and the downloads.
+
 **AI.** Every number comes from the deterministic model. NVIDIA Nemotron on Nebius Token Factory writes the
 narrative from the model's output; without a key a rule-based narrative is shown.
 """)
-st.caption("RackReady AI · Built for Nebius x NVIDIA Build Week · " + E.DISCLAIMER)
+    st.markdown("**Glossary: how an AI data center works**")
+    for term, text in G.HOW_IT_WORKS:
+        st.markdown(esc_md(f"- **{term}**: {text}"))
+    st.markdown("**Where $100 of AI data center capex goes (illustrative)**")
+    st.markdown(esc_md(" · ".join(f"{a} ${b:g}" for a, b in G.CAPEX_SPLIT)))
+    st.caption(esc_md(G.CAPEX_NOTE))
+st.caption(esc_md(f"{E.DISCLAIMER} {G.LEGAL}"))
+st.caption(esc_md(f"RackReady AI · Built for Nebius x NVIDIA Build Week · {G.TRADEMARKS}"))

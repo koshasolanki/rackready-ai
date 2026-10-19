@@ -37,15 +37,20 @@ Domain you apply:
   I = P / (sqrt3 x V x PF). PUE is an annual energy ratio, not a peak multiplier.
 - Long-lead equipment drives the schedule (2026): large power transformers about 100-160 weeks (average
   about 128), MV switchgear 52-104 weeks, large diesel generators 62-110 weeks, UPS 30-60, chillers 40-70,
-  CDUs 30-50. Utility interconnection often takes years. Use the schedule JSON: substantial completion month,
-  notice to proceed, the critical path and the order-by dates (RFQ and PO by month, items to order before NTP).
+  CDUs 30-50. Utility interconnection often takes years. Use the schedule JSON: the ready-for-IT range in
+  months from start (say "about X-Y months from start"; never give calendar dates), the critical path and
+  when to order each item ("order it N months before you need it", RFQ by month N after start).
 - Commissioning L1-L5 (factory test, delivery/install, start-up, functional test, integrated systems test).
   Hard stop: no IT power-on until the liquid loop passes leak test, flushing, chemistry and leak detection.
   Substantial completion follows a passed IST.
-- The estimate is AACE Class 5 (concept screening, about -20% to -50% / +30% to +100%).
+- Costs: cost_lines lists 13 end-to-end lines with included true/false. total_capex_usd is the sum of the
+  included lines; always quote that total and name any large line that is not included.
+- Call it an "early budget estimate (±30-50%)". Never use the words concept, screening or estimate class.
+- Mention one or two items from how_to_avoid_delays that fit the project.
 - Tier-style resilience wording (Tier I/III/IV-style); do not claim certification. Units needed plus one
   spare is N+1 (never "2N+1").
-- Never name companies, vendors, people, projects or sites.
+- Never name companies, vendors, suppliers, people, projects or sites.
+- End with: not engineering, legal or financial advice; a licensed engineer and the AHJ must review.
 
 Rules:
 - If project_type starts with "Greenfield" there is ONE new build: never mention a current build or a
@@ -190,6 +195,7 @@ def complete_narrative(payload: dict, api_key: str, base_url: str = DEFAULT_BASE
 
 def fallback_narrative(res: dict) -> str:
     """Rule-based narrative from the same engine output (used when no LLM is available)."""
+    import guide as G
     import report as R
 
     i = res["inputs"]
@@ -201,18 +207,21 @@ def fallback_narrative(res: dict) -> str:
     out = ["## Executive summary"]
     if gf:
         out.append(f"{i['project_name']} is a single new build in {i['region']}: {h['racks']:,} {h['platform']} racks at "
-                   f"{h['kw']:,.0f} kW/rack, {h['it_mw']:,.1f} MW of IT load, cooled by {h['cooling']}. The indicative "
-                   f"project cost is {R.money(h['total'])} ({R.money(h['per_mw'])} per MW IT, including land, utility "
-                   f"interconnection, owner costs and escalation). GPU and network hardware add {R.money(h['it_total'])}. "
+                   f"{h['kw']:,.0f} kW/rack, {h['it_mw']:,.1f} MW of IT load, cooled by {h['cooling']}. The early budget "
+                   f"estimate (±30–50%) is {R.money(h['total'])} ({R.money(h['per_mw'])} per MW IT) for the ticked cost "
+                   f"lines; with every line ticked it is {R.money(h['total_all'])}. "
+                   + (f"Not in the total: {', '.join(h['excluded'])}. " if h["excluded"] else "") +
                    f"Payback including IT is {'about %.1f years' % h['payback'] if h['payback'] is not None else 'not reached in the period'} "
-                   f"from ready-for-service, expected in about {h['rfs']:.0f} months.")
+                   f"from ready-for-service, expected {h['rfs_text']}.")
     else:
         cur, fu, up = res["current"], res["future"], res["upgrade"]
         out.append(f"{i['project_name']}: {cur['racks']:,} racks today at {cur['kw']:.0f} kW/rack ({cur['cooling']}) vs a "
-                   f"future-ready fit-out for {h['platform']} at {fu['kw']:.0f} kW/rack ({fu['cooling']}). The future-ready "
-                   f"fit-out costs {R.money(fu['capex'])} vs {R.money(cur['capex'])} for the current design; building current "
+                   f"future-ready fit-out for {h['platform']} at {fu['kw']:.0f} kW/rack ({fu['cooling']}). The early budget "
+                   f"estimate (±30–50%) for the ticked cost lines is {R.money(h['total'])} ({R.money(h['per_mw'])} per MW IT; "
+                   f"every line ticked {R.money(h['total_all'])}). Like for like, the future-ready construction costs "
+                   f"{R.money(fu['capex'])} vs {R.money(cur['capex'])} for the current design; building current "
                    f"now and retrofitting in year {up['year']} costs {R.money(up['path_b_total'])} including "
-                   f"{up['downtime_months']} months of downtime.")
+                   f"{up['downtime_months']} months of downtime. Ready for IT {h['rfs_text']}.")
     out.append(f"**Recommendation:** {rec['headline']}. {rec['detail']}")
     out.append("## Assumptions commentary")
     out.append(f"Key design: {R.key_design_line(res)}. Facility peak demand is {v['fac_peak_kw'] / 1000:,.1f} MW "
@@ -242,9 +251,9 @@ def fallback_narrative(res: dict) -> str:
     out.append("## Key risks")
     S = res["cx"]["schedule"]
     first = [x for x in S["items"] if not x["flag"].startswith("After")]
-    risks = [f"Schedule: substantial completion (ready for IT) about month {S['sc']:.0f}; critical path: "
-             f"{S['critical_path']}.",
-             ("Order first: " + "; ".join(f"{x['item']} (RFQ by month {max(x['rfq'], 0):.0f}: {x['flag']})"
+    risks = [f"Schedule: ready for IT {S['range_text']}; critical path: {S['critical_path']}.",
+             ("Order first: " + "; ".join(f"{x['item']} (order it {x['order_ahead']:,.0f} months before you need it; "
+                                         f"RFQ by month {max(x['rfq'], 0):.0f} after start: {x['flag']})"
                                          for x in first) + "." if first else
               "All long-lead orders can follow notice to proceed."),
              "2026 lead times: large power transformers about 100-160 weeks, MV switchgear 52-104, large diesel "
@@ -259,13 +268,15 @@ def fallback_narrative(res: dict) -> str:
     out.append("\n".join(["- Confirm firm MW and the energization date with the utility; secure transformer and generator slots.",
             "- Freeze the rack platform and density; get the OEM rack power, weight and coolant specs in writing.",
             "- Carry the future-ready provisions into the basis of design and the site layout.",
-            "- Replace these planning rates with a quantity-based estimate at concept design (this is an AACE Class 5 "
-            "concept estimate).",
+            "- Avoid delays: " + "; ".join(G.HOW_TO_AVOID[:3]),
+            "- Replace these planning rates with a quantity-based estimate once schematic design is drawn (this is an "
+            "early budget estimate, ±30–50%).",
             "- " + DISCLAIMER_TEXT]))
     return "\n\n".join(out)
 
 
-DISCLAIMER_TEXT = "All figures are an indicative planning estimate, not a bid."
+DISCLAIMER_TEXT = ("All figures are an early budget estimate (±30–50%), not a bid. Not engineering, legal or financial "
+                   "advice; a licensed engineer and the AHJ must review.")
 
 
 def E_RES(i):

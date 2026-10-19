@@ -12,7 +12,13 @@ Built for the **Nebius x NVIDIA Build Week** hackathon (2026).
 RackReady AI is a planning tool for owners, developers and contractors of high-density AI data centers. Pick a
 project type, a size, a GPU platform, a location and a redundancy level. In seconds you get:
 
-- a **one-screen summary**: total cost, cost per MW, payback, ready-for-service date and a recommendation;
+- a **one-screen summary**: total cost, cost per MW, payback, a ready-for-IT range ("about 41–51 months from start")
+  and a recommendation;
+- an **end-to-end cost checklist**: 13 cost lines (facility, land and site, utility interconnection, on-site or
+  bridging power, GPU hardware, AI network fabric, fiber and cabling, racks/PDUs/CDUs/manifolds, security and
+  controls, design/permits/fees, commissioning, contingency and escalation, spares and first fill), each with an
+  "Include in total" tick box. The total and the cost per MW are always the sum of the ticked lines, and the same
+  total is used in the summary, the Nemotron narrative, the PDFs and every export;
 - **design calculations** with formulas, inputs and the code they follow: utility MVA, MV current and switchgear,
   transformers, generators and fuel, UPS and batteries, A/B rack feeds, busway current and loading, cooling tons,
   airflow (CFM), chilled-water gpm, thermal storage, CDUs, coolant flows, heat rejection, cooling-tower make-up,
@@ -20,20 +26,28 @@ project type, a size, a GPU platform, a location and a redundancy level. In seco
   (IPC fixtures, Hunter's curve), stormwater (rational method), network fiber and entrance diversity, floor loading
   and land;
 - a **schedule** that scales with MW: pre-construction and build phases as a Gantt chart with overtime, weather and
-  congestion factors, **order-by dates** for every long-lead item (reverse-scheduled from the date it is needed, with
-  a buffer, flagging what must be ordered before notice to proceed) and current 2026 lead times;
-- an auto-enabled **risk register** (trigger, mitigation, owner, phase, impact in months);
+  congestion factors, and **when to order** every long-lead item ("send the RFQ N months after start", "order it N
+  months before you need it", reverse-scheduled with a buffer and flagging what must be ordered before notice to
+  proceed), with current 2026 lead times;
+- an auto-enabled **risk register** (trigger, mitigation, owner, phase, impact in months), including the delay causes
+  seen in public reporting (power and transmission, community opposition, water, gas supply, financing, equipment
+  slots, labor), plus a **How to avoid delays** list;
+- a **Codes & procurement** tab: the latest edition of each code and standard (checked on the publishers' sites), a
+  "Confirm locally" checklist, and a US procurement table (lead time, number of US suppliers, domestic vs imported,
+  tariff and capacity risk) with suppliers that have a public US manufacturing source, listed alphabetically;
 - a **Build & commission** tab: commissioning levels L1-L5, the liquid-loop hard stop, load banks and failure
   scenarios, 10 construction-to-IT handoff feeds, a 30-step IT-readiness sequence and QA checklists, with CSV,
   Markdown and a printable checklist PDF;
 - a **future-ready horizon** (5, 10 or 15 years) that prices retrofit later vs provisions now vs full future build;
 - **benchmark checks** against public 2025-2026 data (cost outlooks, industry surveys, government
   energy data, supply-chain studies and platform specs);
-- stage gates 0-7, an AACE Class 5 estimate label, a specification quick reference and operations readiness;
+- stage gates 0-7, a specification quick reference, operations readiness and a **How it works** glossary;
 - exports: **one-page PDF**, a multi-page **checklist PDF**, a full Markdown report with every calculation, and CSV
   tables.
 
-> All figures are an **indicative planning estimate, not a bid** (2026 US dollars, Northern Virginia = 1.00).
+> All figures are an **early budget estimate (±30–50%), not a bid** (2026 US dollars, Northern Virginia = 1.00): built
+> from per-MW benchmarks and design quantities before any drawings exist, so the final cost can land well above or
+> below it.
 
 ## Why
 NVIDIA GB300 NVL72 racks draw about 135 kW, roughly 10x a traditional rack. Vera Rubin (2H 2026) and Rubin Ultra
@@ -51,18 +65,20 @@ has a tooltip and results update as you type.
 existing-hall fit-out (200 racks, 15 kW to GB300).
 
 **Tabs:** Costs · Future-ready · Design calculations · Operations & ROI · Schedule & risks · Build & commission ·
-Assumptions & sources.
+Codes & procurement · Assumptions & sources.
 
-**Schedule inputs (Advanced):** project start date, design months, build months (0 = auto from MW:
+**Schedule inputs (Advanced):** design months, build months (0 = auto from MW:
 12 + 12 x sqrt(MW/100) for greenfield, 8 + 6 x sqrt(MW/100) for fit-out), months to utility power, work week
-(40-70 h), weather allowance and congestion factor. The ready-for-service date in the summary is the Gantt's
-substantial completion, which follows a passed integrated systems test.
+(40-70 h), weather allowance and congestion factor. All timing is in months from start, with no calendar dates.
+Ready for IT is the Gantt's substantial completion, which follows a passed integrated systems test; the range runs
+from short lead times with no weather allowance to long lead times with 10% more weather allowance.
 
 **Project types.**
 - *Greenfield* is one new build from scratch, with no "current" case. The facility is priced from a cost per MW of
   IT for the platform, split across 22 construction divisions, then adjusted for redundancy (from the designed
-  generator, UPS and transformer counts), contingency, location, owner costs and escalation. Land, utility
-  interconnection and IT hardware are shown separately.
+  generator, UPS and transformer counts), contingency, location, owner costs and escalation, then regrouped into the
+  13 cost lines (the regrouped lines add back exactly to the facility cost). By default the total includes every
+  line except on-site/bridging power, GPU hardware and the AI network fabric; tick them to include them.
 - *Existing building fit-out* compares keeping today's racks with a future-ready fit-out in the same hall, and with
   retrofitting later.
 
@@ -112,23 +128,23 @@ rejection and heat reuse, multi-fuel generators and space for on-site generation
 | Tower make-up (if towers were used) | M = E x CoC / (CoC - 1), CoC 5 | 885 gpm (2.9 gpm per 100 tons rejected) |
 | Sprinklers | OH-1 0.15 gpm/sf x 1,950 sf (+30% double-interlock) + 250 gpm hose | 542.5 gpm; 750 gpm fire pump; 32,550 gal for 60 min |
 | Clean agent | W = (V/S) x C/(100-C), S = 0.9856 + 0.002441 T | 2,047 lb FK-5-1-12 for 54,000 ft3 at 4.2%, 70 F |
-| Stormwater | Q = C i A (C 0.30 -> 0.69, 3 in/h, 26.2 ac) | 54 cfs; about 2.5 acre-ft detention (screening) |
+| Stormwater | Q = C i A (C 0.30 -> 0.69, 3 in/h, 26.2 ac) | 54 cfs; about 2.5 acre-ft detention (first pass) |
 | Fiber | 72 GPUs x 16 fibers x 1.25 per rack | 1,440 fibers per rack; 853,632 backbone fibers |
 
 ![Design calculations tab](docs/design_calcs.png)
 
-### Example results (presets, default inputs)
-| Preset | Design | Total cost | Per MW IT | IT hardware | Payback | Recommendation |
-|---|---|---|---|---|---|---|
-| 100 MW AI campus | GB300 NVL72, 741 racks, D2C, PUE 1.20 | $2.32B | $23.2M | $3.46B | 3.1 years | Build today + future-ready provisions (10-year horizon) |
-| 10 MW edge AI hall | H200 HGX, 239 racks, rear-door hybrid, PUE 1.35 | $184.6M | $18.5M | $340.7M | 6.7 years | Build today + future-ready provisions (5-year horizon) |
-| Existing-hall fit-out | 200 racks, 15 kW air to GB300 D2C | $352.1M | $13.0M | $800.0M | 2.2 years | Fit out future-ready now |
+### Example results (presets, default ticks)
+| Preset | Design | Total (default lines) | Per MW IT | Every line ticked | Payback | Ready for IT | Recommendation |
+|---|---|---|---|---|---|---|---|
+| 100 MW AI campus | GB300 NVL72, 741 racks, D2C, PUE 1.20 | $2.33B | $23.3M | $6.08B ($60.8M/MW) | 3.1 years | about 41–51 months from start | Build today + future-ready provisions (10-year horizon) |
+| 10 MW edge AI hall | H200 HGX, 239 racks, rear-door hybrid, PUE 1.35 | $188.1M | $18.8M | $561.6M ($56.2M/MW) | 6.7 years | about 26–38 months from start | Build today + future-ready provisions (5-year horizon) |
+| Existing-hall fit-out | 200 racks, 15 kW air to GB300 D2C | $358.2M | $13.3M | $1.37B ($50.7M/MW) | 2.5 years | about 33–48 months from start | Fit out future-ready now |
 
-### Schedule (default 100 MW campus, project start 18 Oct 2026, 40 h week, +5% weather)
-Notice to proceed month 10.4; build 24 months (auto); energization starts month 37.2; **substantial completion
-month 43** (May 2030). The large power transformers set the date (about 9.5 months of waiting after field work is
-ready), so the RFQ must go out now. MV switchgear (RFQ by Jan 2027) and generators (RFQ by May 2027) must be
-ordered before notice to proceed.
+### Schedule (default 100 MW campus, 40 h week, +5% weather)
+Notice to proceed about 10 months after start; build 24 months (auto); energization starts about month 37; **ready
+for IT about 43 months from start (range about 41–51)**. The large power transformers set the finish (about 9.5 months
+of waiting after field work is ready), so the RFQ must go out now. MV switchgear (RFQ about 3 months after start) and
+generators (RFQ about 7 months after start) must be ordered before notice to proceed.
 
 ### Verification
 Every number, its range and its source is listed in [docs/VERIFICATION.md](docs/VERIFICATION.md). The tests check the
@@ -136,7 +152,7 @@ physics (MVA >= MW/PF, tons = kW/3.517, Q = P/(rho cp dT), I = P/(sqrt3 V PF), r
 ($10-15M/MW air, $15-25M+/MW high density, PUE 1.1-1.5, US power $0.06-0.12/kWh, transformer lead time 1-2+ years,
 GPU rental within each platform's market range), the D2C switch at 40/50 kW and a 600 kW case, and every round-2
 calculation against a hand-worked code example (NFPA 13/20/2001, IPC, rational method, MV current, A/B, busway
-loading, tower make-up, order-by dates, Gantt factors). Anything without a public source is labelled as an
+loading, tower make-up, order timing, Gantt factors), and that the ticked cost lines always add up to the total. Anything without a public source is labelled as an
 assumption in the app.
 
 ## How NVIDIA Nemotron and Nebius Token Factory are used
@@ -206,7 +222,11 @@ rackready_ai/
 ├── app.py            # Streamlit UI: sidebar, summary, tabs, downloads
 ├── platforms.py      # GPU platform specs, cost basis per MW, division mix
 ├── design.py         # step-by-step design calculations (power, cooling, fire, water, site, network, space)
-├── buildcx.py        # schedule, order-by dates, risks, commissioning, handoffs, checklists, stage gates
+├── buildcx.py        # schedule, when to order, risks, commissioning, handoffs, checklists, stage gates
+├── costlines.py      # the 13 end-to-end cost lines and the Include-in-total checklist
+├── codes.py          # codes and standards (latest editions) and the Confirm-locally checklist
+├── procurement.py    # US procurement table and verified suppliers (the only file with company names)
+├── guide.py          # delays and fixes, how to avoid delays, glossary, legal text
 ├── engine.py         # costs, future-ready paths, OpEx/ROI, schedule, checks, presets
 ├── report.py         # tables, Markdown report, one-page PDF and checklist PDF (fpdf2)
 ├── llm.py            # Nebius / Nemotron client, prompt, rule-based fallback
@@ -226,9 +246,14 @@ python -m pytest -q tests
 Python · Streamlit · pandas · Plotly · fpdf2 · OpenAI Python SDK · Nebius Token Factory · NVIDIA Nemotron · pytest
 
 ## Disclaimer
-RackReady AI is an early-stage planning tool. Rates are indicative 2026 benchmarks, not quotes. Roadmap platforms
-(Vera Rubin, Kyber, 1 MW racks) are estimates. Validate against local pricing, OEM data and a qualified estimator and
-engineer before making investment decisions.
+RackReady AI is a planning tool. Its output is an early budget estimate (±30–50%), not engineering, legal or financial
+advice. A licensed professional engineer and the local authority having jurisdiction (AHJ) must review any design
+before it is used. Rates are 2026 public benchmarks, not quotes. Roadmap platforms (Vera Rubin, Kyber, 1 MW racks)
+are estimates. Suppliers in the procurement table are listed alphabetically for reference; not exhaustive, not an
+endorsement; no affiliation.
+
+NVIDIA, Nebius and product names such as GB300, Vera Rubin and Nemotron are trademarks of their owners. RackReady AI
+is not affiliated with or endorsed by them.
 
 ## License
 [MIT](LICENSE) © 2026 Kosha Solanki

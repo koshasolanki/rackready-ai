@@ -9,8 +9,12 @@ from datetime import date
 import pandas as pd
 
 import buildcx as CX
+import codes as CD
+import costlines as CL
 import engine as E
+import guide as G
 import platforms as PL
+import procurement as PR
 
 M = 1e6
 
@@ -60,22 +64,23 @@ def horizon(res):
     return res["future"] if res["mode"] == "greenfield" else res["future_paths"]
 
 
+def cost_lines(res) -> dict:
+    return res["design"]["cost_lines"] if res["mode"] == "greenfield" else res["cost_lines"]
+
+
 def headline(res) -> dict:
-    """Numbers for the one-screen summary."""
-    i = res["inputs"]
-    if res["mode"] == "greenfield":
-        d = res["design"]
-        return {"total": d["capex"], "per_mw": d["capex_per_mw"], "payback": d["payback"],
-                "npv": d["npv"], "it_total": d["it_total"], "it_mw": d["it_mw"], "racks": d["racks"],
-                "kw": d["kw"], "cooling": d["cooling"], "platform": d["platform"]["label"],
-                "rfs": d["schedule"]["months_to_rfs"], "label_total": "Total project cost (facility)",
-                "label_per_mw": "Cost per MW IT (all-in facility)"}
-    f = res["future"]
-    return {"total": f["capex"], "per_mw": f["capex_per_mw"], "payback": f["payback"], "npv": f["npv"],
-            "it_total": f["it_total"], "it_mw": f["it_mw"], "racks": f["racks"], "kw": f["kw"],
-            "cooling": f["cooling"], "platform": res["platform"]["label"],
-            "rfs": res["schedule"]["months_to_rfs"], "label_total": "Future-ready fit-out cost",
-            "label_per_mw": "Fit-out cost per MW IT"}
+    """Numbers for the one-screen summary. The total is always the sum of the ticked cost lines."""
+    cl = cost_lines(res)
+    S = res["cx"]["schedule"]
+    x = res["design"] if res["mode"] == "greenfield" else res["future"]
+    common = {"total": cl["total"], "per_mw": cl["per_mw"], "total_all": cl["total_all"], "payback": x["payback"],
+              "npv": x["npv"], "it_total": x["it_total"], "it_mw": x["it_mw"], "racks": x["racks"], "kw": x["kw"],
+              "cooling": x["cooling"], "rfs": S["sc"], "rfs_low": S["sc_low"], "rfs_high": S["sc_high"],
+              "rfs_text": S["range_text"], "label_total": "Total project cost (ticked lines)",
+              "label_per_mw": "Cost per MW IT (ticked lines)",
+              "excluded": [r["label"] for r in cl["rows"] if not r["included"] and r["amount"] > 0]}
+    common["platform"] = res["design"]["platform"]["label"] if res["mode"] == "greenfield" else res["platform"]["label"]
+    return common
 
 
 def key_design_line(res) -> str:
@@ -97,25 +102,29 @@ def design_table(dz) -> pd.DataFrame:
 
 
 def cost_table(res) -> pd.DataFrame:
-    if res["mode"] == "greenfield":
-        d = res["design"]
-        rows = [{"Cost line": k, "$M": v / M, "$M per MW IT": v / M / d["it_mw"]} for k, v in d["lines"].items()]
-        rows.append({"Cost line": "Total project cost (facility)", "$M": d["capex"] / M,
-                     "$M per MW IT": d["capex_per_mw"] / M})
-        rows.append({"Cost line": "IT hardware: GPU racks + AI network (separate)", "$M": d["it_total"] / M,
-                     "$M per MW IT": d["it_total"] / M / d["it_mw"]})
-        return pd.DataFrame(rows)
+    """All end-to-end cost lines with the 'Include in total' state; total = sum of ticked lines."""
+    cl = cost_lines(res)
+    mw = headline(res)["it_mw"]
+    rows = [{"Include": "✓" if r["included"] else "–", "Cost line": r["label"], "$M": r["amount"] / M,
+             "$M per MW IT": r["amount"] / M / mw, "Source type": r["source"]} for r in cl["rows"]]
+    rows.append({"Include": "", "Cost line": "Total project cost (ticked lines)", "$M": cl["total"] / M,
+                 "$M per MW IT": cl["per_mw"] / M, "Source type": "Sum of the ticked lines"})
+    rows.append({"Include": "", "Cost line": "Total if every line is ticked", "$M": cl["total_all"] / M,
+                 "$M per MW IT": cl["per_mw_all"] / M, "Source type": "Sum of all lines"})
+    return pd.DataFrame(rows)
+
+
+def fitout_compare_table(res) -> pd.DataFrame:
+    """Like-for-like construction cost of the current racks vs the future-ready fit-out (same scope)."""
     cur, f = res["current"], res["future"]
     rows = []
     for k in f["systems"]:
         rows.append({"Cost line": k, "Current $M": cur["systems"][k] / M, "Future-ready $M": f["systems"][k] / M})
     for lbl, key in (("Soft costs (design, permits, Cx) 14%", "soft"), ("Contingency 10%", "contingency"),
-                     ("Escalation to mid-point", "escalation"), ("Total fit-out cost", "capex")):
+                     ("Escalation to mid-point", "escalation"), ("Construction cost (like for like)", "capex")):
         rows.append({"Cost line": lbl, "Current $M": cur[key] / M, "Future-ready $M": f[key] / M})
-    rows.append({"Cost line": "Cost per MW IT", "Current $M": cur["capex_per_mw"] / M,
+    rows.append({"Cost line": "Construction cost per MW IT", "Current $M": cur["capex_per_mw"] / M,
                  "Future-ready $M": f["capex_per_mw"] / M})
-    rows.append({"Cost line": "IT hardware (separate)", "Current $M": cur["it_total"] / M,
-                 "Future-ready $M": f["it_total"] / M})
     return pd.DataFrame(rows)
 
 
@@ -199,7 +208,7 @@ def long_lead_table() -> pd.DataFrame:
 
 
 def cx_tables(res) -> dict[str, pd.DataFrame]:
-    """Build, commission and schedule tables (order-by dates, Gantt, risks, checklists ...)."""
+    """Build, commission and schedule tables (when to order, Gantt, risks, checklists ...)."""
     return {k: pd.DataFrame(v) for k, v in res["cx"]["tables"].items()}
 
 
@@ -216,9 +225,28 @@ def risk_table(res, active_only=False) -> pd.DataFrame:
     return df[df["Active"] == "Yes"].reset_index(drop=True) if active_only else df
 
 
-def aace_table() -> pd.DataFrame:
-    return pd.DataFrame([{"Class": c["class"], "Project definition": c["maturity"], "Typical use": c["use"],
-                          "Accuracy low": c["low"], "Accuracy high": c["high"]} for c in CX.AACE_CLASSES])
+def codes_table() -> pd.DataFrame:
+    return pd.DataFrame(CD.codes_rows())
+
+
+def confirm_locally_table() -> pd.DataFrame:
+    return pd.DataFrame([{"Confirm locally": x, "Done": ""} for x in CD.CONFIRM_LOCALLY])
+
+
+def procurement_table() -> pd.DataFrame:
+    return pd.DataFrame(PR.rows())
+
+
+def supplier_table() -> pd.DataFrame:
+    return pd.DataFrame(PR.supplier_rows())
+
+
+def delays_table() -> pd.DataFrame:
+    return pd.DataFrame([{"Cause": a, "What public reporting shows": b, "Proven fixes": c} for a, b, c in G.DELAYS])
+
+
+def how_it_works_table() -> pd.DataFrame:
+    return pd.DataFrame([{"Term": a, "Plain explanation": b} for a, b in G.HOW_IT_WORKS])
 
 
 def checks_table(res) -> pd.DataFrame:
@@ -248,13 +276,17 @@ def all_tables(res) -> dict[str, pd.DataFrame]:
     t = {"summary_costs": cost_table(res), "design_calculations": design_table(main_design(res)),
          "benchmark_checks": checks_table(res), "schedule": schedule_table(
              res["design"]["schedule"] if res["mode"] == "greenfield" else res["schedule"]),
-         "long_lead": long_lead_table(), "platforms": platform_table(), "estimate_classes": aace_table()}
+         "long_lead": long_lead_table(), "platforms": platform_table(), "codes_and_standards": codes_table(),
+         "confirm_locally": confirm_locally_table(), "us_procurement": procurement_table(),
+         "procurement_suppliers": supplier_table(), "delays_and_fixes": delays_table(),
+         "how_it_works": how_it_works_table()}
     t.update(cx_tables(res))
     if res["mode"] == "greenfield":
         t["divisions"] = division_table(res)
         t["opex"] = opex_table(res["design"])
         t["cash_flow"] = cash_table(res["design"], res["inputs"]["years"])
     else:
+        t["fitout_current_vs_future"] = fitout_compare_table(res)
         t["design_calculations_current"] = design_table(res["current"]["design"])
         t["opex_future_ready"] = opex_table(res["future"])
         t["opex_current"] = opex_table(res["current"])
@@ -284,21 +316,24 @@ def markdown_report(res, narrative: str = "", narrative_src: str = "") -> str:
     i, h = res["inputs"], headline(res)
     rec = res["recommendation"]
     out = [f"# RackReady AI report: {i['project_name']}",
-           f"_Generated {date.today().isoformat()} · {E.DISCLAIMER} 2026 US dollars._",
+           f"_Generated {date.today().isoformat()} · {E.ESTIMATE_NOTE} 2026 US dollars._",
            "## Summary",
            f"- **Project:** {i['project_type']}, {i['region']}, {E.RESILIENCE[i['resilience']]}",
            f"- **Design:** {h['platform']}, {h['kw']:,.0f} kW/rack, {h['racks']:,} racks, {h['it_mw']:,.1f} MW IT, {h['cooling']}",
-           f"- **{h['label_total']}:** {money(h['total'])} ({money(h['per_mw'])} per MW IT)",
-           f"- **IT hardware (separate):** {money(h['it_total'])}",
+           f"- **{h['label_total']}:** {money(h['total'])} ({money(h['per_mw'])} per MW IT); every line ticked: "
+           f"{money(h['total_all'])}",
+           "- **Not in the total (unticked):** " + (", ".join(h["excluded"]) if h["excluded"] else "none"),
            f"- **Payback (incl. IT, from ready-for-service):** {yrs(h['payback'])}; NPV {money(h['npv'])}",
-           f"- **Ready for service:** about {h['rfs']:.0f} months",
+           f"- **Ready for IT:** {h['rfs_text']}",
            f"- **Recommendation:** {rec['headline']}. {rec['detail']}",
            f"- **Key design:** {key_design_line(res)}"]
     if res["warnings"]:
         out.append("**Warnings**\n\n" + "\n".join(f"- {w}" for w in res["warnings"]))
-    out += ["## Costs", _md(cost_table(res))]
+    out += ["## Costs (end to end; the total is the sum of the ticked lines)", _md(cost_table(res))]
     if res["mode"] == "greenfield":
-        out += ["### By trade group", _md(group_table(res), pct_cols=("Share",))]
+        out += ["### Facility construction by trade group", _md(group_table(res), pct_cols=("Share",))]
+    else:
+        out += ["### Current vs future-ready (like-for-like construction cost)", _md(fitout_compare_table(res))]
     f = horizon(res)
     out.append("## Future-ready horizon")
     if f.get("active"):
@@ -321,14 +356,18 @@ def markdown_report(res, narrative: str = "", narrative_src: str = "") -> str:
     sch = res["design"]["schedule"] if res["mode"] == "greenfield" else res["schedule"]
     S = res["cx"]["schedule"]
     out += ["## Schedule & risks",
-            f"Notice to proceed month {S['ntp']:.1f}; build {S['build_months']:.1f} months"
-            f"{' (auto from MW)' if S['build_months_auto'] else ''}; energization starts month {S['energization']:.1f}; "
-            f"substantial completion (ready for IT) month {S['sc']:.1f} ({S['sc_date'].isoformat()}). Work week "
-            f"{S['overtime_hours']} h, weather +{S['weather']:.0%}, congestion +{S['congestion']:.0%}.",
-            "### What sets the date", _md(schedule_table(sch), num_cols=("Months",)),
-            "### Order-by dates (reverse schedule with buffer)", order_by_table(res).to_markdown(index=False),
+            f"Ready for IT (substantial completion) {S['range_text']} (central case month {S['sc']:.0f}). Notice to "
+            f"proceed about month {S['ntp']:.0f}; build {S['build_months']:.1f} months"
+            f"{' (auto from MW)' if S['build_months_auto'] else ''}; energization starts about month "
+            f"{S['energization']:.0f}. Work week {S['overtime_hours']} h, weather +{S['weather']:.0%}, congestion "
+            f"+{S['congestion']:.0%}. Range: shortest published lead times without weather allowance, to the longest "
+            "lead times with 10% more weather and productivity allowance.",
+            "### What sets the finish", _md(schedule_table(sch), num_cols=("Months",)),
+            "### When to order (reverse schedule with buffer)", order_by_table(res).to_markdown(index=False),
             "### Phases", gantt_table(res).to_markdown(index=False),
             "### Risk register (active)", risk_table(res, True).to_markdown(index=False),
+            "### How to avoid delays", "\n".join(f"- {x}" for x in G.HOW_TO_AVOID),
+            "### Common causes of delay and proven fixes", delays_table().to_markdown(index=False),
             "### Long-lead equipment (2026)", _md(long_lead_table()), CX.TURBINE_NOTE]
     T = cx_tables(res)
     lb = res["cx"]["load_banks"]
@@ -341,19 +380,27 @@ def markdown_report(res, narrative: str = "", narrative_src: str = "") -> str:
             "### QA checklists", T["checklists"].to_markdown(index=False),
             "## Stage gates", T["stage_gates"].to_markdown(index=False),
             "## Specification quick reference", T["spec_reference"].to_markdown(index=False),
-            "## Estimate class", CX.ESTIMATE_LABEL, aace_table().to_markdown(index=False)]
+            "## Codes and standards to follow", CD.CODES_NOTE, codes_table().drop(columns=["Group"]).to_markdown(index=False),
+            "### Confirm locally", "\n".join(f"- [ ] {x}" for x in CD.CONFIRM_LOCALLY),
+            "## US procurement (long-lead packages)", PR.TARIFF_2026, procurement_table().to_markdown(index=False),
+            "### Verified suppliers and sources", PR.DISCLAIMER,
+            supplier_table().drop(columns=["URL"]).to_markdown(index=False),
+            "## How it works", how_it_works_table().to_markdown(index=False),
+            "## Estimate accuracy", CX.ESTIMATE_LABEL]
     out += ["## Benchmark checks", _md(checks_table(res))]
     if narrative:
         out += ["## Narrative", f"_{narrative_src}_", narrative]
-    out.append(f"_{E.DISCLAIMER} Sources and ranges: docs/VERIFICATION.md in the project repository._")
+    out.append(f"_{E.DISCLAIMER} {G.LEGAL} {G.TRADEMARKS} Sources and ranges: docs/VERIFICATION.md in the "
+               "project repository._")
     return "\n\n".join(out)
 
 
 def _order_line(res) -> str:
     first = [x for x in res["cx"]["schedule"]["items"] if not x["flag"].startswith("After")]
     if not first:
-        return "All long-lead orders can follow NTP."
-    return "Order first: " + "; ".join(f"{x['item'].split(' (')[0]} by {x['rfq_date'].isoformat()}" for x in first[:3]) + "."
+        return "All long-lead orders can follow notice to proceed."
+    return "Order first: " + "; ".join(f"{x['item'].split(' (')[0]} (order it {x['order_ahead']:,.0f} months before "
+                                       f"you need it, RFQ at month {max(x['rfq'], 0):.0f})" for x in first[:3]) + "."
 
 
 # ------------------------------------------------------------------ one-page PDF
@@ -401,19 +448,26 @@ def pdf_report(res) -> bytes:
     pdf.set_text_color(20, 20, 20)
     pdf.cell(W, 7, _latin(f"RackReady AI - {i['project_name']}"), new_x="LMARGIN", new_y="NEXT")
     text(f"{i['project_type']} | {i['region']} | {E.RESILIENCE[i['resilience']]} | {date.today().isoformat()} | "
-         f"{E.DISCLAIMER} AACE Class 5 concept estimate (-20% to -50% / +30% to +100%).", 7.5, color=(90, 90, 90))
+         f"{E.ESTIMATE_NOTE}", 7.5, color=(90, 90, 90))
     head("Summary")
     rec = res["recommendation"]
-    table([["Total cost", "Per MW IT", "IT hardware", "Payback", "Ready for service"],
-           [money(h["total"]), money(h["per_mw"]), money(h["it_total"]), yrs(h["payback"]), f"{h['rfs']:.0f} months"]],
+    table([["Total (ticked lines)", "Per MW IT", "Every line ticked", "Payback (incl. IT)", "Ready for IT"],
+           [money(h["total"]), money(h["per_mw"]), money(h["total_all"]), yrs(h["payback"]),
+            h["rfs_text"].replace(" from start", "")]],
           [W / 5] * 5, size=8.5)
     text(f"Design: {h['platform']}, {h['kw']:,.0f} kW/rack, {h['racks']:,} racks, {h['it_mw']:,.1f} MW IT, {h['cooling']}.")
     text(f"Recommendation: {rec['headline']}. {rec['detail']}", style="B")
-    head("Costs ($M)")
-    ct = cost_table(res)
-    cols = list(ct.columns)
-    rows = [cols] + [[r[cols[0]]] + [f"{r[c]:,.1f}" for c in cols[1:]] for _, r in ct.iterrows()]
-    table(rows, [W * 0.58] + [W * 0.42 / (len(cols) - 1)] * (len(cols) - 1))
+    head("Costs ($M; total = ticked lines)")
+    cl = cost_lines(res)
+    rows = [["Cost line (ticked)", "$M", "$M/MW"]]
+    for r in cl["rows"]:
+        if r["included"]:
+            rows.append([r["label"], f"{r['amount'] / M:,.1f}", f"{r['amount'] / M / h['it_mw']:,.2f}"])
+    rows.append(["Total project cost (ticked lines)", f"{cl['total'] / M:,.1f}", f"{cl['per_mw'] / M:,.2f}"])
+    table(rows, [W * 0.70, W * 0.15, W * 0.15], size=6.9)
+    off = [f"{r['label'].split(' (')[0]} {money(r['amount'])}" for r in cl["rows"] if not r["included"]]
+    if off:
+        text("Not included (untick/tick in the app): " + "; ".join(off) + ".", 6.8, color=(90, 90, 90), h_=3.2)
     f = horizon(res)
     head("Future-ready horizon")
     if f.get("active"):
@@ -448,15 +502,14 @@ def pdf_report(res) -> bytes:
     sch = res["design"]["schedule"] if res["mode"] == "greenfield" else res["schedule"]
     text(f"Operating cost {money(x['opex'])}/yr; revenue year 1 {money(x['revenue'])} at ${x['gpu_price']:.2f}/GPU-hr, "
          f"{i['utilization']:.0%} utilization; NPV {money(x['npv'])} over {i['years']} years at 8%. "
-         f"Critical path: {sch['critical_path']} (~{sch['months_to_rfs']:.0f} months to substantial completion). "
+         f"Critical path: {sch['critical_path']}; ready for IT {res['cx']['schedule']['range_text']}. "
          + _order_line(res), 7.5)
     head("Checks & warnings")
     ok = sum(c["ok"] for c in res["checks"])
     text(f"{ok}/{len(res['checks'])} benchmark checks in range (public cost guides, industry surveys, government energy "
          f"data, supply-chain studies, platform specifications). " + " ".join(res["warnings"][:3]), 7.2)
-    pdf.set_y(-12)
-    text(f"{E.DISCLAIMER} Generated by RackReady AI. Above 45 kW/rack the design uses direct-to-chip liquid cooling.",
-         6.5, color=(110, 110, 110))
+    pdf.set_y(-14)
+    text(f"{E.DISCLAIMER} {G.LEGAL} {G.TRADEMARKS}", 5.8, color=(110, 110, 110), h_=2.6)
     return bytes(pdf.output())
 
 
@@ -501,15 +554,16 @@ def checklist_pdf(res) -> bytes:
     S = cx["schedule"]
     pdf.set_font("Helvetica", "B", 15)
     pdf.cell(W, 7, _latin(f"Build & commission checklist - {i['project_name']}"), new_x="LMARGIN", new_y="NEXT")
-    text(f"{i['project_type']} | generated {date.today().isoformat()} | NTP month {S['ntp']:.1f} | substantial "
-         f"completion month {S['sc']:.1f} ({S['sc_date'].isoformat()}). {E.DISCLAIMER} Field use: confirm every value "
-         "against the project specifications, the approved submittals and the AHJ.", 8, color=(90, 90, 90))
+    text(f"{i['project_type']} | generated {date.today().isoformat()} | notice to proceed about month {S['ntp']:.0f} | "
+         f"ready for IT {S['range_text']}. {E.DISCLAIMER} {G.LEGAL} Field use: confirm every value against the "
+         "project specifications, the approved submittals and the AHJ.", 8, color=(90, 90, 90))
     head("Liquid-loop hard stop")
     text(CX.HARD_STOP, 8.5, "B")
-    head("Order-by dates")
+    head("When to order")
     for r in T["order_by"]:
-        box(f"{r['Item']}: RFQ by {r['RFQ date']} (month {r['RFQ out by (month)']}), PO by month {r['PO by (month)']}, "
-            f"needed month {r['Need on site (month)']}. {r['Flag']}.")
+        box(f"{r['Item']}: {r['Order ahead']}. Send RFQ by month {r['Send RFQ (months after start)']}, place PO by "
+            f"month {r['Place PO (months after start)']}, needed on site at month "
+            f"{r['Needed on site (months after start)']}. {r['Flag']}.")
     head("Commissioning levels L1-L5")
     for c in T["cx_levels"]:
         text(f"{c['Level']} {c['Name']}", 9, "B")
@@ -538,6 +592,15 @@ def checklist_pdf(res) -> bytes:
             cur = r["Checklist"]
             head(f"QA checklist: {cur}", 10)
         box(r["Item"])
+    head("Codes and standards to follow (latest editions; confirm the adopted edition with the AHJ)")
+    for c in CD.CODES:
+        box(f"{c[0]} ({c[2]}): {c[4]}")
+    head("Confirm locally")
+    for x in CD.CONFIRM_LOCALLY:
+        box(x)
+    head("How to avoid delays")
+    for x in G.HOW_TO_AVOID:
+        box(x)
     head("Active risks")
     for r in cx["risks"]:
         if r["active"]:

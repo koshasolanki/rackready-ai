@@ -2,7 +2,8 @@
 
 Every number the model uses, its value, the range it must sit in, and the public source or the reason it is
 an assumption. The automated tests (`tests/test_rackready.py`) enforce the ranges and the physics.
-**Indicative planning estimate, not a bid.** Prices are 2026 US dollars.
+**Early budget estimate (±30–50%), not a bid.** Prices are 2026 US dollars. Not engineering, legal or financial
+advice: a licensed professional engineer and the authority having jurisdiction (AHJ) must review any design.
 
 Status: **Verified** = matches a public 2025-2026 source. **Derived** = computed from verified inputs with a
 standard formula. **Assumption** = planning judgement with no single public source; you can change it.
@@ -18,9 +19,9 @@ standard formula. **Assumption** = planning judgement with no single public sour
 | Vera Rubin NVL144 | 220 kW (230 kW peak) | published figures 120-230 kW; in production, ships 2H 2026 | **Announced; estimate** | NVIDIA GTC 2025 / CES 2026; trade press |
 | Rubin Ultra NVL576 (Kyber) | 600 kW (660 kW peak), 800 VDC | about 600 kW per rack, 2H 2027 | **Announced; estimate** | NVIDIA GTC 2025 keynote; DatacenterDynamics |
 | 1 MW-class racks (15-year horizon) | 1,000 kW | industry direction for 800 VDC | **Speculative** | NVIDIA 800 VDC technical blog 2025 |
-| TPU Ironwood (rack) | 100 kW | no public per-rack figure | **Estimate** | Google Cloud announcement 2025 (chip level only) |
+| Custom AI accelerator (ASIC) rack (estimated) | 100 kW | no public per-rack figure for a generic ASIC rack | **Estimate** | generic planning value; network fabric $3.5M/MW (about 18% of IT cost) |
 
-Roadmap weights, prices and rental rates for Rubin, Kyber and TPU are estimates and are labelled so in the app.
+Roadmap weights, prices and rental rates for Rubin, Kyber and the ASIC rack are estimates and are labelled so in the app.
 
 ## 2. Facility cost per MW of IT
 
@@ -70,7 +71,7 @@ widened for Blackwell (below).
 | B200 | $4.50 | $3.69-8.60 (spot $4.38, median $6.25) | Verified | as above |
 | GB200 NVL72 | $6.00 | $6-16 (cloud 1-year about $10.6) | Verified | as above |
 | GB300 NVL72 | $7.00 | $6-17.8 (B300 median about $7.9) | Verified | as above |
-| Vera Rubin / Kyber / TPU | $9.00 / $3.00 / $3.00 | no market yet | **Estimate** | |
+| Vera Rubin / Kyber / ASIC rack | $9.00 / $3.00 / $3.00 | no market yet | **Estimate** | |
 
 The original "$2-4/GPU-hr" sanity range only holds for Hopper (H100/H200). Blackwell rents for more, so the test
 checks each platform against its own public range. Rental price change is -8%/yr between hardware refreshes
@@ -96,10 +97,13 @@ Lead time = released for manufacture (approved submittals) to delivery, incl. fa
 
 **Procurement chain per item (reverse schedule):** specification and RFQ 6 wk + bids 6 + award/PO 3 + submittal
 preparation 5 + review 8 + quoted lead + staging 1.5, plus a 15% buffer on submittals and lead (planning practice:
-RFQ to PO 8-16 weeks, submittal review 4-12 weeks, buffer 10-20%). Need dates: main and unit transformers 1-2.5 months
+RFQ to PO 8-16 weeks, submittal review 4-12 weeks, buffer 10-20%). When it is needed (months after start): main and unit transformers 1-2.5 months
 before energization starts, MV switchgear 3 months before, generators 1.5 months before, UPS at energization,
 chillers 1 month before, CDUs during energization, busway and fire equipment during MEP rough-in, carrier fiber at
-commissioning. RFQ by = need - (chain + buffer); "Order before NTP" when the PO date falls before notice to proceed.
+commissioning. Send RFQ (months after start) = need - (chain + buffer); "Order it N months before you need it" with
+N = need - max(RFQ month, 0); "Order before NTP" when the PO month falls before notice to proceed. No calendar dates
+are shown. The ready-for-IT range runs from the short lead times with no weather allowance to the long lead times with
+10% more weather allowance (100 MW default: about 41–51 months from start, typical 43).
 
 **Phase model (assumptions, editable):** auto build = 12 + 12 x sqrt(MW/100) months (greenfield, 12-40) or
 8 + 6 x sqrt(MW/100) (fit-out, 8-24): 24 months at 100 MW agrees with the public 18-30 month NTP-to-completion range
@@ -112,7 +116,10 @@ when field work is ready, utility power is available and the power-chain equipme
 latest). Substantial completion follows the integrated systems test; final completion 2 months later.
 Escalation runs to the construction mid-point (NTP + build / 2).
 
-**Estimate class:** AACE 18R-97 Class 5 (concept screening, 0-2% definition): -20% to -50% / +30% to +100%.
+**Estimate accuracy.** The app calls its output an "early budget estimate (±30–50%)". For reference only (this
+term is not shown in the app): this corresponds to AACE International Recommended Practice 18R-97 Class 5 (0-2% project
+definition; typical accuracy -20% to -50% low and +30% to +100% high). Later stage gates use "updated budget estimate
+(about ±20–30%)" (18R-97 Class 4/3) and "control budget (about ±10–20%)" (Class 3/2).
 
 ## 6. Engineering formulas (checked by tests)
 
@@ -146,13 +153,13 @@ the model always uses direct-to-chip liquid cooling. Immersion is a niche option
 | Chilled water (US) | GPM = tons x 24 / dT_F | 8,823 gpm (SI 8,851) | 500 = 8.33 x 60 |
 | Thermal storage | V = Q x t / (rho cp dT x FOM), 10 min, FOM 0.9 | 372 m3 | chiller restart on generator |
 | Tower make-up | E = Q / h_fg; M = E x CoC / (CoC - 1) | 708 gpm evaporation (2.3 per 100 tons); 885 gpm make-up at CoC 5 | physics; Legionella plan per ASHRAE 188 |
-| Sprinklers | OH-1 0.15 gpm/sf over 1,500 sf, +30% area for double-interlock pre-action; + 250 gpm hose | 292.5 + 250 = 542.5 gpm; 160 heads at 130 sf | NFPA 13 (2022/2025); OH-2 0.20 gpm/sf shown as the range |
+| Sprinklers | OH-1 0.15 gpm/sf over 1,500 sf, +30% area for double-interlock pre-action; + 250 gpm hose | 292.5 + 250 = 542.5 gpm; 160 heads at 130 sf | NFPA 13 (2025); OH-2 0.20 gpm/sf shown as the range |
 | Fire pump and storage | smallest rating >= demand; 60 min (supervised) or 90 min | 750 gpm; 32,550 gal (90 min: 48,825) | NFPA 20 (65% pressure at 150% flow), NFPA 22 |
 | Clean agent | W = (V / S) x C / (100 - C), S = 0.9856 + 0.002441 T (FK-5-1-12) | 2,047 lb for 54,000 ft3 at 4.2%, 70 F | NFPA 2001; 10-min hold, door-fan test |
 | Domestic water | IPC Table 2902.1 fixtures; WSFU -> Hunter's curve | 9 fixtures, 30.2 WSFU -> 23.4 gpm | IPC Appendix E |
-| Stormwater | Q = C i A; detention = (Q_post - Q_pre) x 1 h (screening) | 54 cfs post vs 24 pre; 2.5 acre-ft | rational method; local ordinance and IDF data govern |
+| Stormwater | Q = C i A; detention = (Q_post - Q_pre) x 1 h (first pass) | 54 cfs post vs 24 pre; 2.5 acre-ft | rational method; local ordinance and IDF data govern |
 | Fiber | GPUs x 16 (800G class) x 1.25 per rack; backbone racks x GPUs x 16 | 1,440 per rack; 853,632 backbone | planning assumption; 2x pathway fill |
-| Entrance diversity | 2 entrance rooms, 2+ carriers, routes >= 20 m apart | 2 | TIA-942-B, BICSI 002 |
+| Entrance diversity | 2 entrance rooms, 2+ carriers, routes >= 20 m apart | 2 | TIA-942-C, BICSI 002-2024 |
 
 ### Corrections applied (values found wrong in planning material and fixed)
 
@@ -203,7 +210,160 @@ the model always uses direct-to-chip liquid cooling. Immersion is a niche option
 - Power transformer supply-chain study (Q2 2025) and 2026 procurement surveys.
 - ASHRAE TC 9.9, thermal guidelines and liquid cooling guidance for data processing environments.
 - NFPA 13, 20, 22, 70 (NEC), 110, 2001, 51B, 855; IPC 2021/2024 (Table 2902.1, Appendix E); NETA ATS; IEEE C37.20.2,
-  C37.20.7; TIA-942-B; BICSI 002; ASHRAE 188; OSHA 29 CFR 1904.39 and 1926.652; AACE 18R-97.
+  C37.20.7; TIA-942-C; BICSI 002; ASHRAE 188; OSHA 29 CFR 1904.39 and 1926.652; AACE 18R-97 (estimate-class
+  mapping above only). Editions and URLs: section 10.
 - 2026 equipment procurement surveys (lead times) and published overtime-productivity studies.
 - US EPA Technology Transitions rule (low-GWP refrigerants for IT cooling, 2027).
 - Public GPU rental price trackers (October 2026).
+
+## 9. End-to-end cost lines and the "Include in total" checklist (round 3)
+
+The total and the cost per MW are always the sum of the ticked lines (tested with random tick sets on every preset,
+greenfield and fit-out). The same total is used in the summary cards, the Costs tab, the Nemotron payload, the
+rule-based narrative, the one-page PDF, the Markdown report and the CSV exports.
+
+| # | Line | Default | How it is priced | Status / source type |
+|---|---|---|---|---|
+| 1 | Facility: shell, power, cooling, fire | ticked | $/MW IT benchmark by division (section 2), net of the lines carved out below | Verified range |
+| 2 | Land and site work | ticked | powered land $/acre x acres + site divisions 31-33 | Verified (US land); assumption |
+| 3 | Utility interconnect and substation | ticked | $80k per MW of service + 15% of division 26 (on-site substation) | Assumption |
+| 4 | On-site or bridging power | **not ticked** | $2,000/kW x 1.1 x facility peak | Verified range: US EIA capital cost assumptions, combustion turbines about $1,522-1,606/kW, reciprocating engines about $2,460/kW |
+| 5 | GPU and server hardware | **not ticked** | platform price per rack | Estimate (public system pricing) |
+| 6 | AI network fabric | **not ticked** | $/MW by platform; 8.8-18.6% of IT cost ($9,375 per GPU for GB300) | Verified range: networking about 10-15% (6-20%) of AI cluster cost |
+| 7 | Fiber and structured cabling | ticked | division 27 of the cost basis | Derived |
+| 8 | Racks, rack PDUs, CDUs and manifolds | ticked | carved from the facility; HGX-type platforms add $6,000 per rack + $120/kW rack PDUs (NVL72-type rack prices already include the rack); manifolds $18k (hybrid) / $30k (D2C) per rack | Assumption within trade ranges |
+| 9 | Security and controls | ticked | divisions 25 and 28 | Derived |
+| 10 | Design, permits and fees | ticked | 2.5% design carve + owner costs | Assumption (below published A/E fee guides) |
+| 11 | Commissioning | ticked | 1.5% of construction (0.75-2%) | Trade press: about 1.5% of construction cost for complex data centers |
+| 12 | Owner contingency and escalation | ticked | planning contingency + escalation to the construction mid-point | Assumption; cost index |
+| 13 | Spares and first fill | ticked | 1% of electrical + mechanical + diesel first fill at $6.00/gal | US EIA weekly retail diesel $6.179/gal (12 Oct 2026) |
+
+**Greenfield carve.** Lines 1, 2 (site part), 3 (substation part), 7, 8, 9, 10 (design part), 11 and 12 (embedded
+contingency) are regrouped from the facility estimate, so they add back exactly to the facility cost (tested). Only
+spares, the interconnect allowance, land and (for HGX-type platforms) racks and rack PDUs are new money. Fit-out
+lines regroup the fit-out construction cost the same way (tested).
+
+| Preset | Default ticks | Per MW | Every line ticked | Per MW |
+|---|---|---|---|---|
+| 100 MW GB300 NVL72 greenfield | $2,328.2M | $23.28M | $6,076.2M | $60.76M |
+| 10 MW H200 HGX greenfield | $188.1M | $18.81M | $561.6M | $56.16M |
+| 200-rack fit-out to GB300 (27 MW) | $358.2M | $13.27M | $1,369.9M | $50.74M |
+
+## 10. Codes and standards: editions checked on the publishers' sites (October 2026)
+
+| Code / standard | Edition used | Publisher page |
+|---|---|---|
+| NFPA 70 (NEC) | 2026 | https://www.nfpa.org/codes-and-standards/nfpa-70-standard-development/70 |
+| NFPA 70E | 2027 | https://www.nfpa.org/codes-and-standards/nfpa-70e-standard-development/70e |
+| NFPA 110 | 2025 | https://www.nfpa.org/codes-and-standards/nfpa-110-standard-development/110 |
+| NFPA 111 | 2025 | https://www.nfpa.org/codes-and-standards/nfpa-111-standard-development/111 |
+| NFPA 13 | 2025 | https://www.nfpa.org/codes-and-standards/nfpa-13-standard-development/13 |
+| NFPA 20 | 2025 | https://www.nfpa.org/codes-and-standards/nfpa-20-standard-development/20 |
+| NFPA 22 | 2023 | https://www.nfpa.org/codes-and-standards/nfpa-22-standard-development/22 |
+| NFPA 72 | 2025 | https://www.nfpa.org/codes-and-standards/nfpa-72-standard-development/72 |
+| NFPA 75 | 2024 | https://www.nfpa.org/codes-and-standards/nfpa-75-standard-development/75 |
+| NFPA 76 | 2024 | https://www.nfpa.org/codes-and-standards/nfpa-76-standard-development/76 |
+| NFPA 2001 | 2025 | https://www.nfpa.org/codes-and-standards/nfpa-2001-standard-development/2001 |
+| NFPA 855 | 2026 | https://www.nfpa.org/codes-and-standards/nfpa-855-standard-development/855 |
+| NFPA 101 | 2027 | https://www.nfpa.org/codes-and-standards/nfpa-101-standard-development/101 |
+| NFPA 30 | 2027 | https://www.nfpa.org/codes-and-standards/nfpa-30-standard-development/30 |
+| NFPA 37 | 2024 | https://www.nfpa.org/codes-and-standards/nfpa-37-standard-development/37 |
+| IEEE 1584 | 2018 | https://standards.ieee.org/ieee/1584/5802/ |
+| IEEE C57.12.00 | 2021 | https://standards.ieee.org/ieee/C57.12.00/6962/ |
+| NESC (IEEE C2) | 2023 | https://standards.ieee.org/ieee/C2/10814/ |
+| UL 9540 | 3rd edition (2023, revised 2025) | https://www.shopulstandards.com/ProductDetail.aspx?productId=UL9540_3_S_20230628 |
+| UL 9540A | 5th edition (2025) | https://www.shopulstandards.com/ProductDetail.aspx?productId=UL9540A_5_S_20250312 |
+| IBC, IFC, IMC, IPC, IECC | 2027 (published 2026) | https://codes-conv.iccsafe.org/content/IBC2027V1.0 ; https://codes-conv.iccsafe.org/content/IFC2027V1.0 |
+| ASHRAE 90.4 | 2025 | https://www.ashrae.org/technical-resources/bookstore/datacom-series |
+| ASHRAE TC 9.9 Thermal Guidelines | 5th edition, revised and expanded | https://www.ashrae.org/technical-resources/bookstore/datacom-series |
+| ASHRAE 188 | 2021 | https://www.ashrae.org/technical-resources/bookstore/ansi-ashrae-standard-188-2021-legionellosis-risk-management-for-building-water-systems |
+| TIA-942 | TIA-942-C (2024) | https://tiaonline.org/products-and-services/tia942certification/ansi-tia-942-standard/ |
+| BICSI 002 | 2024 | https://www.bicsi.org/standards/available-standards-store/single-purchase/ansi-bicsi-002-the-standard-for-data-center-design |
+| OSHA 29 CFR 1926 / 1910 | current eCFR | https://www.ecfr.gov/current/title-29/subtitle-B/chapter-XVII/part-1926 ; https://www.ecfr.gov/current/title-29/subtitle-B/chapter-XVII/part-1910 |
+| EPA SPCC, 40 CFR 112 | current eCFR (1,320 gal aboveground threshold) | https://www.ecfr.gov/current/title-40/chapter-I/subchapter-D/part-112 |
+| FAA 14 CFR Part 77 | current eCFR (Form 7460-1) | https://www.ecfr.gov/current/title-14/chapter-I/subchapter-E/part-77 |
+| ADA | 2010 Standards | https://www.ada.gov/law-and-regs/design-standards/2010-stds/ |
+
+The adopted edition is set by each state and city, often one or two cycles behind the latest, so the app's "Confirm
+locally" checklist lists what to check with the AHJ. NFPA 780 is not listed (edition not re-verified).
+
+## 11. Delays: public evidence behind the risk register and "How to avoid delays"
+
+| Topic | Public evidence | Source |
+|---|---|---|
+| Power and grid | 2025 university study: about 76 GW of new load fits on the US grid if it accepts curtailment about 0.25% of the time | https://nicholasinstitute.duke.edu/publications/rethinking-load-growth |
+| Community opposition | 2025 tracking report: about $64B of US projects blocked or delayed by local opposition, May 2024 - March 2025 | https://www.datacenterwatch.org/report |
+| Equipment supply | US DOE report and 2025 transformer study (US procurement section); lead times in section 5 | see below |
+| Capex split (How it works) | 2025 consultancy estimate: about 60% chips and computing hardware, 25% power, cooling and electrical, 15% land, materials and site | https://www.mckinsey.com/industries/technology-media-and-telecommunications/our-insights/the-cost-of-compute-a-7-trillion-dollar-race-to-scale-data-centers |
+| Fixes | early utility load study, phased energization, flexible-load agreements, bridging power, factory slot deposits (typically 10-30%), early environmental review, closed-loop or dry cooling, community benefit agreements, labor agreements and prefabrication | 2025-26 trade and industry reporting |
+
+The app's illustrative capex split (50% chips and servers, 15% networking, 20% power, 7.5% cooling, 7.5% facilities)
+is consistent with the public 60/25/15 split (chips + networking 65% vs 60%; power + cooling + facilities 35% vs 40%)
+and is labelled illustrative.
+
+**Other benchmark URLs.** US EIA weekly retail diesel: https://www.eia.gov/petroleum/gasdiesel/ . US EIA capital cost
+and performance assumptions: https://www.eia.gov/outlooks/aeo/assumptions/pdf/elec_cost_perf.pdf . Commissioning about
+1.5% of construction: https://www.datacenterknowledge.com/business/getting-the-most-out-of-commissioning-through-best-practices .
+AI cluster networking about 10-15% of cluster cost: https://www.amcompute.com/blog/gpu-cluster-networking .
+
+## US procurement: lead times, supply, tariffs and suppliers
+
+This is the only section of the project that names companies. Listed alphabetically for reference; not exhaustive,
+not an endorsement; no affiliation. Each supplier has one public source showing it makes that equipment for data
+centers or makes it in the US. No rankings, logos or market shares are shown.
+
+**Supply and tariff sources.** US DOE Large Power Transformer Resilience report to Congress (July 2024): 82% of LPTs
+imported in 2019 (617 imported vs 137 US-made), US plants about 40% utilized, grain-oriented electrical steel mostly
+imported: https://www.energy.gov/sites/default/files/2024-10/EXEC-2022-001242%20-%20Large%20Power%20Transformer%20Resilience%20Report%207-10-24.pdf .
+2025 industry study, transformer supply deficits (30% power, 10% distribution):
+https://www.woodmac.com/press-releases/power-transformers-and-distribution-transformers-will-face-supply-deficits-of-30-and-10-in-2025 .
+Section 232 metals proclamation of 2 Apr 2026 (50% metals, 25% derivatives, temporary 15% for listed industrial
+machinery and equipment): https://www.whitehouse.gov/presidential-actions/2026/04/strengthening-actions-taken-to-adjust-imports-of-aluminum-steel-and-copper-into-the-united-states/ ;
+amendment of 1 Jun 2026: https://www.whitehouse.gov/presidential-actions/2026/06/further-adjusting-the-tariff-regimes-for-imports-of-aluminum-steel-and-copper-into-the-united-states/ .
+
+| Package | Supplier | What the source shows | Source |
+|---|---|---|---|
+| Large power transformers | Hitachi Energy | Large power transformer factory, South Boston, Virginia (announced 2025) | https://www.hitachienergy.com/us/en/news-and-events/press-releases/2025/09/hitachi-announces-historic-1-billion-usd-manufacturing-investment-to-power-america-s-energy-future-through-production-of-critical-grid-infrastructure |
+| Large power transformers | Hyosung HICO | Large power transformer plant, Memphis, Tennessee; expansions announced 2025 (+50% capacity) | https://www.hyosunghico.com/blog/powering-americas-future-hyosung-hico-expands-memphis-headquarters |
+| Large power transformers | Prolec GE | US transformer plant investment, North Carolina | https://www.prolec.energy/news/prolec-ge-invests-an-additional-140-million-in-the-u-s-to-support-north-american-electric-grid-goals/ |
+| Large power transformers | Siemens Energy | Large power transformer factory, Charlotte, North Carolina (production from 2027) | https://www.siemens-energy.com/us/en/home/press-releases/siemens_energy_addresses_shortage_US_powertransformers_invests_new_factory.html |
+| Large power transformers | Virginia Transformer | Power transformer plant expansion, Rincon, Georgia | https://www.vatransformer.com/expand-georgia-transformer-plant-in-rincon/ |
+| MV switchgear | Eaton | UPS made in the Raleigh, North Carolina area; metal-clad MV switchgear; busway | https://www.eaton.com/us/en-us/catalog/medium-voltage-power-distribution-control-systems/vacclad-w-5-15-kv-metal-clad-medium-voltage-switchgear.html |
+| MV switchgear | Powell Industries | ANSI metal-clad MV switchgear (Houston, Texas) | https://www.powellind.com/ansi-metal-clad-switchgear |
+| MV switchgear | Schneider Electric | US plants for MV equipment (Tennessee) and switchgear (Texas, North Carolina); data center UPS | https://www.se.com/us/en/about-us/newsroom/news/press-releases/Schneider-Electric-Plans-to-Invest-Over-700-million-in-the-U-S-Supporting-Energy-AI-Sectors-and-Job-Growth-67bdeb3ee4475a5955011b6a/ |
+| Standby generators | Caterpillar | Lafayette, Indiana large-engine and genset expansion for data center backup power (2024) | https://www.caterpillar.com/en/news/corporate-press-releases/h/lafayette-large-engine-expansion.html |
+| Standby generators | Cummins | QSK95 data center generator sets; engines built in Seymour, Indiana | https://www.cummins.com/en-na/news/releases/2020/12/21/cummins-qsk95-diesel-generator-series-reaches-1000th-unit-milestone |
+| Standby generators | Rehlko | Diesel generators up to about 4 MW for data centers | https://www.powersystems.rehlko.com/data-center |
+| Standby generators | Rolls-Royce (mtu) | Series 4000 data center generator sets, Mankato, Minnesota expansion (2026) | https://www.rolls-royce.com/media/press-releases/2026/09-07-2026-rr-cuts-ribbon-on-new-usd-24m-expansion-in-mankato-minnesota.aspx |
+| UPS | Eaton | UPS made in the Raleigh, North Carolina area; metal-clad MV switchgear; busway | https://www.eaton.com/us/en-us/company/news-insights/news-releases/2022/eaton-reinvests-in-north-carolina.html |
+| UPS | Mitsubishi Electric Power Products | UPS and switchgear for US data centers (Warrendale, Pennsylvania) | https://www.meppi.com/news/mitsubishi-electric-to-provide-integrated-power-protection-and-it-cooling-solutions-for-us-data-center-applications |
+| UPS | Schneider Electric | US plants for MV equipment (Tennessee) and switchgear (Texas, North Carolina); data center UPS | https://www.se.com/us/en/work/products/master-ranges/galaxy/ |
+| UPS | Toshiba International | UPS and power electronics made in Houston, Texas | https://toshiba.com/tic/about-us/company-overview/ |
+| UPS | Vertiv | Data center UPS and CDUs; US manufacturing sites | https://www.vertiv.com/en-us/products-catalog/critical-power/uninterruptible-power-supplies-ups/liebert-exl-s1/ |
+| Busway | Eaton | UPS made in the Raleigh, North Carolina area; metal-clad MV switchgear; busway | https://www.eaton.com/us/en-us/catalog/low-voltage-power-distribution-controls-systems/pow-r-way-III-busway.html |
+| Busway | Legrand (Starline) | Track busway for data centers | https://www.legrand.com/datacenter/en/grey-space/busbar-busway/starline-track-busway |
+| Chillers and dry coolers | Carrier | Water-cooled centrifugal chiller for data centers | https://www.carrier.com/commercial/en/us/19mv/data-center/ |
+| Chillers and dry coolers | Johnson Controls (YORK) | Air-cooled magnetic-bearing chillers for data centers | https://www.york.com/commercial-equipment/chilled-water-systems/air-cooled-chillers/yvam_ch/yvam-air-cooled-magnetic-bearing-centrifugal-chiller |
+| Chillers and dry coolers | Modine | US chiller production expansion for data centers (Grenada, Mississippi) | https://investors.modine.com/news/news-details/2025/Modine-Expands-U-S--Chiller-Production-Capacity-to-Serve-Data-Center-Customers/default.aspx |
+| Chillers and dry coolers | Munters | Data center cooling factory expansion, Virginia (2025) | https://www.munters.com/en-us/news-media/stories/2025/munters-to-expand-its-data-center-technology-factory-in-virginia/ |
+| Chillers and dry coolers | Trane | Data center chillers | https://www.trane.com/commercial/north-america/us/en/products-systems/chillers/data-center-chillers.html |
+| CDUs | Flex (JetCool) | Coolant distribution units for AI/HPC; US manufacturing sites | https://investors.flex.com/news/news-details/2025/Flexs-Liquid-Cooling-Business-Expands-Portfolio-with-High-Performance-Coolant-Distribution-Unit-for-AI-and-HPC-Applications/default.aspx |
+| CDUs | Motivair (Schneider Electric) | CDUs built in Buffalo, New York | https://www.motivaircorp.com/news/motivair-by-schneider-electric-expands-u-s-manufacturing-footprint/ |
+| CDUs | Vertiv | Data center UPS and CDUs; US manufacturing sites | https://www.vertiv.com/en-us/products-catalog/thermal-management/high-density-solutions/vertiv-coolchip-cdu/ |
+| Switchboards (LV) | Schneider Electric | US plants for MV equipment (Tennessee) and switchgear (Texas, North Carolina); data center UPS | https://www.se.com/us/en/about-us/newsroom/news/press-releases/Schneider-Electric-Plans-to-Invest-Over-700-million-in-the-U-S-Supporting-Energy-AI-Sectors-and-Job-Growth-67bdeb3ee4475a5955011b6a/ |
+| Switchboards (LV) | Siemens | Fort Worth, Texas plant for low-voltage switchboards for AI infrastructure | https://news.siemens.com/en-us/siemens-opens-190m-ft-worth-mfg-hub-ai-infrastructure/ |
+| Fiber and optics | AFL | US fiber optic cable manufacturing expansion, South Carolina (2024) | https://www.aflglobal.com/en/company/company-profile/news/2024/afl-announces-a-multi-million-dollar-investment-and-expansion-to-its-us-fiber-optic-cable |
+| Fiber and optics | CommScope | US fiber cable manufacturing expansion, Catawba County, North Carolina (2023) | https://www.businesswire.com/news/home/20230726503630/en/CommScope-Announces-Fiber-Cable-Manufacturing-Expansion-in-North-Carolina |
+| Fiber and optics | Corning | Optical cable manufacturing expansion, Hickory, North Carolina | https://hickorync.gov/corning-expand-operations-trivium-plans-add-132-jobs-and-invest-170m-2679m |
+| Fiber and optics | Prysmian | US optical cable plants (Tennessee, North Carolina) | https://na.prysmian.com/resources/press-releases/prysmian-partners-with-dow-to-advance-production-of-sirocco-microduct-cables |
+| Fire pumps | Aurora (Pentair) | UL-listed, FM-approved split-case fire pumps (NFPA 20) | https://www.pentair.com/en-us/flow/aurora-brand-page/aurora-products/aurora-horizontal-split-case-electric-drive-fire-pump-series-912.html |
+| Fire pumps | Patterson Pump | UL-listed, FM-approved split-case fire pumps | https://pattersonpumps.com/markets/fire-pumps/horizontal-split-case-fire/ |
+| Fire pumps | Peerless Pump | UL/FM split-case fire pumps (NFPA 20) | https://www.peerlesspump.com/products/fire/aef/ |
+| Battery energy storage (BESS) | Fluence | Battery storage with US-made cells, modules and enclosures | https://fluenceenergy.com/domestic-content/ |
+| Battery energy storage (BESS) | LG Energy Solution Vertech | LFP energy-storage cell production, Holland, Michigan | https://www.canarymedia.com/articles/energy-storage/lg-michigan-lfp-battery-factory |
+| Battery energy storage (BESS) | Tesla | Megapack battery storage built in Lathrop, California; data center use | https://www.tesla.com/megapack |
+
+**Left out as unverifiable** (no public source tying the company to the category or to US manufacturing when
+checked): a cooling maker whose US production starts only in 2027; a CDU product page that could not be reached; a
+multinational with no category-specific US source; two makers whose sources covered other products (for example
+1-10 MVA units, not LPTs); US makers of optical transceivers; guessed product URLs that did not resolve.

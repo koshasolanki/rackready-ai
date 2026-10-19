@@ -532,10 +532,10 @@ def design(*, racks: float, kw: float, kw_peak: float, cooling: str, liquid: flo
           note=f"C = {p['c_imp']:.2f} on {p['impervious']:.0%} impervious, {p['c_pre']:.2f} elsewhere; i = design-storm "
                "intensity (assumption; use local IDF data, e.g. NOAA Atlas 14).")
     vdet = (q_post - q_pre) * 3600
-    c.add("detention_acft", S, "Detention volume (screening)", "V = (Q_post - Q_pre) x storm duration (1 h)",
+    c.add("detention_acft", S, "Detention volume (first-pass)", "V = (Q_post - Q_pre) x storm duration (1 h)",
           f"({q_post:,.0f} - {q_pre:,.0f}) cfs x 3,600 s = {vdet:,.0f} ft3", vdet / SF_PER_ACRE, "acre-ft",
           f"{vdet * 0.0283168:,.0f} m3",
-          note="Screening by the modified rational method; the local ordinance sets the storms (often 2/10/100-year) "
+          note="First-pass sizing by the modified rational method; the local ordinance sets the storms (often 2/10/100-year) "
                "and method (e.g. NRCS TR-55).")
 
     # ---------------------------------------------------------------- 10. network

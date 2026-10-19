@@ -13,7 +13,7 @@ import platforms as PL  # noqa: E402
 
 APP = os.path.join(ROOT, "app.py")
 TABS = ["Costs", "Future-ready", "Design calculations", "Operations & ROI", "Schedule & risks", "Build & commission",
-        "Assumptions & sources"]
+        "Codes & procurement", "Assumptions & sources"]
 
 
 @pytest.fixture(autouse=True)
@@ -45,8 +45,8 @@ def _ok(at):
         assert any(t in lbl for lbl in labels), (t, labels)
     body = " ".join(m.value for m in at.markdown) + " ".join(c.value for c in at.caption)
     assert "not a bid" in body
-    for word in ("workbook", "Method A", "RIGHT"):
-        assert word not in body
+    for word in ("workbook", "Method A", "RIGHT", "Class 5", "screening", "oncept-level"):
+        assert word not in body, word
     return body
 
 
@@ -94,12 +94,26 @@ def test_resilience_and_regions():
     _ok(_run(w_size_by="Racks", w_racks=64))
 
 
-def test_build_tab_and_estimate_class():
+def test_build_tab_and_estimate_wording():
     at = _run()
     body = _ok(at)
-    assert "Class 5" in body
+    assert "Early budget estimate (±30–50%)" in body
     assert any("Hard stop" in e.value for e in at.error)
-    assert "Order-by dates" in body and "Commissioning levels L1-L5" in body
+    assert "When to order" in body and "Commissioning levels L1-L5" in body
+    assert "months from start" in body and "How to avoid delays" in body
+    assert "Codes and standards to follow" in body and "Listed alphabetically for reference" in " ".join(
+        i.value for i in at.info)
+
+
+def test_include_checkboxes_change_total():
+    at = _run()
+    _ok(at)
+    total0 = at.metric[0].value
+    at.checkbox(key="inc_gpu").check().run()
+    _ok(at)
+    assert at.metric[0].value != total0
+    at.checkbox(key="inc_gpu").uncheck().run()
+    assert at.metric[0].value == total0
 
 
 def test_schedule_factors_and_auto_build():

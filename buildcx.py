@@ -7,29 +7,21 @@ Everything here is generic, planning-level and tied to public codes and practice
   * Reverse-scheduled order-by dates for long-lead equipment from public 2026 lead-time ranges.
   * Commissioning Levels 1-5, the liquid-loop hard stop, load-bank sizing and IST failure scenarios.
   * Construction-to-IT handoff table (10 feeds), a 30-step IT-readiness sequence and QA/field checklists.
-  * Structured risk register (no probabilities, impact in months), stage gates 0-7, estimate class
-    (AACE 18R-97), a specification quick-reference, operations readiness and a glossary.
+  * Structured risk register (no probabilities, impact in months) with proven ways to avoid common delays,
+    stage gates 0-7, the estimate accuracy label, a specification quick-reference, operations readiness
+    and a glossary.
 No cost values are used in this module.
 """
 from __future__ import annotations
 
 import math
-from datetime import date
 
 WEEKS_PER_MONTH = 4.345
 
-# --------------------------------------------------------------------------- estimate class
-# AACE International Recommended Practice 18R-97 (cost estimate classification, process industries;
-# commonly applied to building and data center projects). Ranges are the low/high accuracy bands.
-AACE_CLASSES = [
-    {"class": "Class 5", "maturity": "0-2%", "use": "Concept screening", "low": "-20% to -50%", "high": "+30% to +100%"},
-    {"class": "Class 4", "maturity": "1-15%", "use": "Study or feasibility", "low": "-15% to -30%", "high": "+20% to +50%"},
-    {"class": "Class 3", "maturity": "10-40%", "use": "Budget authorization or control", "low": "-10% to -20%", "high": "+10% to +30%"},
-    {"class": "Class 2", "maturity": "30-75%", "use": "Control or bid/tender", "low": "-5% to -15%", "high": "+5% to +20%"},
-    {"class": "Class 1", "maturity": "65-100%", "use": "Check estimate or bid/tender", "low": "-3% to -10%", "high": "+3% to +15%"},
-]
-ESTIMATE_LABEL = ("Concept-level estimate: AACE 18R-97 Class 5 (concept screening, 0-2% project definition). "
-                  "Expected accuracy -20% to -50% on the low side and +30% to +100% on the high side.")
+# --------------------------------------------------------------------------- estimate accuracy
+# Plain-language label shown to users. The classification behind it is documented in docs/VERIFICATION.md.
+ESTIMATE_LABEL = ("Early budget estimate (±30–50%): built from per-MW benchmarks and design quantities before any "
+                  "drawings exist, so the final cost can land well above or below it.")
 
 # --------------------------------------------------------------------------- long-lead equipment
 # (key, name, low wk, high wk, typical wk, basis). Quoted lead = released for manufacture (approved
@@ -51,7 +43,7 @@ LEAD_TIMES = [
     ("cdus", "Coolant distribution units (CDUs)", 30, 50, 40, "2026 consultant survey: 30-50 weeks"),
     ("busway", "High-amp busway and tap-off units", 16, 40, 26, "2026 manufacturer schedules: about 6-40 weeks; tap-offs often longer"),
     ("fire", "Fire pumps and pre-action valve assemblies", 20, 36, 28, "Typical 2026 quotes: fire pumps 20-36 weeks, valves 14-24"),
-    ("fiber", "Carrier fiber laterals and services", 26, 78, 52, "Typical carrier lateral builds 6-18 months; order 18+ months ahead"),
+    ("fiber", "Telecom fiber laterals and carrier services", 26, 78, 52, "Typical carrier lateral builds 6-18 months; order 18+ months ahead"),
 ]
 TURBINE_NOTE = ("Gas turbines for on-site or bridging power: aeroderivative units about 40 months; heavy-duty "
                 "frame units largely sold out to about 2030, with some slots quoted for 2031-2032 (public 2026 "
@@ -88,17 +80,11 @@ def _mo(w):
     return w / WEEKS_PER_MONTH
 
 
-def _month_date(start: date, months: float) -> date:
-    days = int(round(months * 30.4375))
-    return date.fromordinal(start.toordinal() + days)
-
-
 def schedule(*, it_mw: float, greenfield: bool, design_months: float, build_months: float | None,
              months_to_power: float | None, onsite_hv: bool, d2c: bool, needs_new_service: bool = True,
              overtime_hours: int = 40, weather: float = 0.0, congestion: float = 0.0,
-             start: date | None = None) -> dict:
-    """Phase-level schedule in months from the go decision (month 0)."""
-    start = start or date.today()
+             lead_pick: str = "typ") -> dict:
+    """Phase-level schedule in months from the start (month 0). lead_pick = typ | low | high lead times."""
     B0 = float(build_months) if build_months else auto_build_months(it_mw, greenfield)
     ot = overtime_factor(overtime_hours)
     wx, cg = 1.0 + float(weather or 0), 1.0 + float(congestion or 0)
@@ -119,7 +105,7 @@ def schedule(*, it_mw: float, greenfield: bool, design_months: float, build_mont
         add("Existing-conditions survey (structure, power, cooling, roof)", "Pre-construction", 0.0, 2.0)
         if needs_new_service:
             add("Utility service-upgrade application", "Pre-construction", 0.0, 6.0)
-    d_end = add("Design: concept, 30%, 60%, 90%, issued for construction", "Pre-construction", 1.0 if greenfield else 0.5, dm,
+    d_end = add("Design: schematic, 30%, 60%, 90%, issued for construction", "Pre-construction", 1.0 if greenfield else 0.5, dm,
                 note="Long-lead orders are released between about 30% and 60-80% design")
     d0 = d_end - dm
     p_end = add("Permits (building, site, generator air permit)", "Pre-construction", d0 + 0.6 * dm, 4.0,
@@ -175,7 +161,7 @@ def schedule(*, it_mw: float, greenfield: bool, design_months: float, build_mont
                 "cdus": en + 0.25 * energ_d, "fire": ms + 0.4 * mep_d, "fiber": cxs}
 
     def chain(k):
-        typ = lt[k][3]
+        typ = {"low": lt[k][1], "high": lt[k][2]}.get(lead_pick, lt[k][3])
         nb = PRE_PO_WEEKS + SUBMITTAL_WEEKS + typ + PROCUREMENT["staging"]
         return nb, PROCUREMENT["buffer_pct"] * (SUBMITTAL_WEEKS + typ)
 
@@ -213,8 +199,7 @@ def schedule(*, it_mw: float, greenfield: bool, design_months: float, build_mont
             flag = "After NTP"
         items.append({"key": k, "item": name, "group": group[k], "lead_low": lo, "lead_high": hi, "lead_typ": typ,
                       "need": need, "rfq": rfq, "po": po, "earliest": _mo(nb), "slip": slips[k],
-                      "flag": flag, "basis": src, "need_date": _month_date(start, need),
-                      "rfq_date": _month_date(start, max(rfq, 0.0)), "po_date": _month_date(start, max(po, 0.0))})
+                      "flag": flag, "basis": src, "order_ahead": need - max(rfq, 0.0)})
     if energ > energ_planned + 0.05:
         add("Waiting for power-chain equipment or utility power", "Waiting", energ_planned, energ - energ_planned,
             kind="wait", note="Field work is ready before the equipment or the utility: order earlier or reserve slots")
@@ -244,8 +229,7 @@ def schedule(*, it_mw: float, greenfield: bool, design_months: float, build_mont
             "final": sc + 2.0, "build_months": B, "build_months_auto": not build_months, "design_months": dm,
             "overtime_hours": int(overtime_hours or 40), "overtime_factor": ot, "weather": float(weather or 0),
             "congestion": float(congestion or 0), "power_month": power_m, "drivers": drivers, "critical_path": crit,
-            "months_to_rfs": sc, "mid_point_months": ntp + B / 2, "start": start,
-            "sc_date": _month_date(start, sc), "ntp_date": _month_date(start, ntp)}
+            "months_to_rfs": sc, "mid_point_months": ntp + B / 2}
 
 
 # --------------------------------------------------------------------------- commissioning
@@ -357,7 +341,7 @@ FEEDS = [
      "spec": "Two entrance rooms and diverse entrance routes about 20 m (66 ft) apart (TIA-942 / BICSI 002); tray "
              "fill within limits; bend radius 10x cable OD unloaded and 20x under pull tension.",
      "test": "Link certification (TIA-568), bidirectional OTDR on fiber, polarity check, label audit (TIA-606).",
-     "failure": "Carrier laterals late; sharp tray edges; bend radius violations; tray already full.",
+     "failure": "Telecom carrier laterals late; sharp tray edges; bend radius violations; tray already full.",
      "prevention": "Order carriers 18+ months ahead; deburred fittings; plan tray at about 2x day-one need."},
     {"feed": "Space and structure", "scope": "Construction ends at the finished, sealed slab, rack anchors and floor "
      "markings; IT sets and bolts racks.",
@@ -416,7 +400,7 @@ FEEDS = [
 IT_READINESS = [
     "Utility agreement signed with firm MW and an energization date",
     "Long-lead orders released (transformers, switchgear, generators, UPS, CDUs, chillers, busway)",
-    "Carrier fiber laterals ordered (18+ months ahead) on diverse routes",
+    "Telecom carrier fiber laterals ordered (18+ months ahead) on diverse routes",
     "Permits issued; notice to proceed",
     "Site work, underground duct banks and grounding grid inspected before backfill",
     "Foundations and slab poured; F-numbers measured within 72 hours",
@@ -534,21 +518,21 @@ def risk_register(*, greenfield: bool, kw: float, d2c: bool, it_mw: float, month
                   "impact_low": lo, "impact_high": hi, "active": bool(on), "why": why})
 
     add("Utility interconnection", "No signed agreement with firm MW and date by Gate 1; study results delayed",
-        "Apply early; fund studies; consider phased MW, on-site bridging power or flexible-load agreements",
+        "Early utility load study; phased energization; flexible (curtailable) load agreement; on-site bridging power",
         "Owner", "Pre-construction", 6, 24, greenfield or needs_new_service,
         "Greenfield or new service" if greenfield or needs_new_service else "Existing service is enough")
     add("Long-lead equipment", "Order-by date before NTP or less than 8 weeks of float",
-        "Reserve factory slots before design is complete; frame agreements; expedite and inspect at the factory",
+        "Early equipment reservations with slot deposits before design is complete; frame agreements; factory inspection",
         "Owner / contractor", "Pre-construction to build", 3, 9, True,
         ("Late now: " + ", ".join(late)) if late else ("Order before NTP: " + ", ".join(pre)) if pre else "All orders after NTP")
     add("Permits and environmental (air, stormwater, wetlands)", "Generator air permit or wetland delineation not filed by 30% design",
-        "Start studies at site selection; pre-application meetings; design to the permit limits",
+        "Early environmental review at site selection; pre-application meetings; design to the permit limits",
         "Owner / designer", "Pre-construction", 3, 6, greenfield, "Greenfield site")
     add("Geotechnical and contamination", "Unexpected rock, soft soil or contamination in the Phase I/II findings",
         "Complete geotech and ESA before design freeze; carry a ground allowance in the schedule",
         "Owner", "Pre-construction / site work", 1, 4, greenfield, "Greenfield site")
     add("Labor availability", "Electricians, pipefitters or commissioning technicians short in the look-ahead",
-        "Prefabrication, early trade commitments, realistic overtime (productivity falls above about 50 h/week)",
+        "Labor agreement and workforce plan; modular prefabrication; realistic overtime (productivity falls above about 50 h/week)",
         "Contractor", "Build", 2, 6, True, f"{it_mw:,.0f} MW build")
     add("Density or scope change", "Rack platform or kW/rack changes after long-lead release",
         "Freeze the design basis in writing at Gate 2; design provisions for the future rack",
@@ -586,6 +570,23 @@ def risk_register(*, greenfield: bool, kw: float, d2c: bool, it_mw: float, month
         "Get OEM data in writing; keep provisions flexible", "Owner", "Design to IT install", 1, 4,
         platform_status in ("announced", "estimated", "speculative", "custom") or horizon_active,
         "Roadmap platform or future horizon")
+    add("Community opposition", "Organised objections at zoning hearings (noise, water, power bills, traffic, views)",
+        "Engage the community before filing; community benefit agreement; design to noise and water limits; "
+        "publish the water and power plan", "Owner", "Pre-construction", 3, 18, greenfield, "New site needs zoning approval")
+    add("Water supply and wastewater", "Utility cannot commit water or discharge capacity; drought restrictions",
+        "Dry or closed-loop cooling (little or no evaporative water); reclaimed water; on-site treatment",
+        "Owner / designer", "Pre-construction", 2, 12, greenfield, "New site needs water and discharge permits")
+    add("Transmission constraints", "Utility study shows network upgrades before full MW can be served",
+        "Phased energization (MW in steps as upgrades finish); flexible-load agreement; site near existing capacity",
+        "Owner / utility", "Pre-construction to energization", 6, 36, greenfield and it_mw >= 50,
+        "50 MW or more usually needs transmission-level service")
+    add("Gas supply for on-site power", "No firm gas pipeline capacity for bridging or on-site generation",
+        "Confirm pipeline capacity and lateral timing before committing to gas; consider batteries or fuel cells",
+        "Owner", "Pre-construction", 3, 18, bool(greenfield and (months_to_power or 0) > 36),
+        "Bridging power is likely when the utility wait is above 36 months")
+    add("Financing", "Funding not closed before long-lead deposits or NTP; lender requires firm power",
+        "Phase the capital with the energization steps; secure the power agreement first; early lender engagement",
+        "Owner", "Pre-construction", 2, 9, greenfield, "Large new build")
     add("Bridging power availability", "Utility date later than the IT need; turbines or engines not available",
         "Plan for multi-year turbine backlogs; consider engines, fuel cells or batteries; verify permits",
         "Owner", "Pre-construction", 3, 12, bool(greenfield and (months_to_power or 0) > 36),
@@ -595,9 +596,9 @@ def risk_register(*, greenfield: bool, kw: float, d2c: bool, it_mw: float, month
 
 # --------------------------------------------------------------------------- governance and references
 STAGE_GATES = [
-    ("G0", "Opportunity", "Business case and site criteria agreed; power, water and fiber screening started."),
-    ("G1", "Site and power", "Power, water and fiber availability confirmed in writing; site control; Class 4 estimate."),
-    ("G2", "Basis of design", "Basis of design signed; about 30% design; Class 3 estimate; long-lead orders placed; "
+    ("G0", "Opportunity", "Business case and site criteria agreed; power, water and fiber checks started."),
+    ("G1", "Site and power", "Power, water and fiber availability confirmed in writing; site control; updated budget estimate (about ±20–30%)."),
+    ("G2", "Basis of design", "Basis of design signed; about 30% design; control budget (about ±10–20%); long-lead orders placed; "
                               "contractor and CxA selected."),
     ("G3", "Issued for construction", "Sealed drawings and calculations; coordinated model; GMP or fixed price."),
     ("G4", "Notice to proceed", "Permits, contract, insurance and bonds, site safety plan in place."),
@@ -726,11 +727,12 @@ PLANNING_NOTES = {
 def tables(cx: dict) -> dict:
     """Plain lists of dicts for export."""
     return {
-        "order_by": [{"Item": x["item"], "Need on site (month)": round(x["need"], 1),
-                      "Need date": x["need_date"].isoformat(), "Typical lead (wk)": x["lead_typ"],
-                      "Lead range (wk)": f"{x['lead_low']}-{x['lead_high']}",
-                      "RFQ out by (month)": round(x["rfq"], 1), "RFQ date": x["rfq_date"].isoformat(),
-                      "PO by (month)": round(x["po"], 1), "Flag": x["flag"], "Basis": x["basis"]}
+        "order_by": [{"Item": x["item"], "Send RFQ (months after start)": round(max(x["rfq"], 0.0), 1),
+                      "Place PO (months after start)": round(max(x["po"], 0.0), 1),
+                      "Needed on site (months after start)": round(x["need"], 1),
+                      "Order ahead": f"Order it {x['order_ahead']:,.0f} months before you need it",
+                      "Typical lead (wk)": x["lead_typ"], "Lead range (wk)": f"{x['lead_low']}-{x['lead_high']}",
+                      "Flag": x["flag"], "Basis": x["basis"]}
                      for x in cx["schedule"]["items"]],
         "gantt": [{"Phase": p["phase"], "Track": p["track"], "Start (month)": round(p["start"], 1),
                    "Duration (months)": round(p["dur"], 1), "End (month)": round(p["end"], 1), "Note": p["note"]}
@@ -752,15 +754,18 @@ def tables(cx: dict) -> dict:
 
 def plan(*, it_mw, racks, kw, cooling_d2c, liquid, onsite_hv, greenfield, i, platform_status="shipping",
          horizon_active=False, needs_new_service=True, gen_mw=3.0) -> dict:
-    st = i.get("project_start")
-    if isinstance(st, str):
-        st = date.fromisoformat(st)
-    sch = schedule(it_mw=it_mw, greenfield=greenfield, design_months=i.get("design_months") if greenfield else None,
-                   build_months=i.get("construction_months") if greenfield else i.get("fitout_build_months"),
-                   months_to_power=i.get("months_to_power") if greenfield else None, onsite_hv=onsite_hv, d2c=cooling_d2c,
-                   needs_new_service=needs_new_service, overtime_hours=int(i.get("overtime_hours") or 40),
-                   weather=float(i.get("weather_factor") or 0), congestion=float(i.get("congestion_factor") or 0),
-                   start=st)
+    args = dict(it_mw=it_mw, greenfield=greenfield, design_months=i.get("design_months") if greenfield else None,
+                build_months=i.get("construction_months") if greenfield else i.get("fitout_build_months"),
+                months_to_power=i.get("months_to_power") if greenfield else None, onsite_hv=onsite_hv, d2c=cooling_d2c,
+                needs_new_service=needs_new_service, overtime_hours=int(i.get("overtime_hours") or 40),
+                weather=float(i.get("weather_factor") or 0), congestion=float(i.get("congestion_factor") or 0))
+    sch = schedule(**args)
+    # Range: shortest published lead times and no weather allowance, to the longest lead times plus 10% more
+    # weather/productivity allowance on field work.
+    lo = schedule(**{**args, "weather": 0.0, "lead_pick": "low"})["sc"]
+    hi = schedule(**{**args, "weather": args["weather"] + 0.10, "lead_pick": "high"})["sc"]
+    sch["sc_low"], sch["sc_high"] = min(lo, sch["sc"]), max(hi, sch["sc"])
+    sch["range_text"] = range_text(sch["sc_low"], sch["sc_high"])
     lb = load_banks(it_mw=it_mw, liquid=liquid, d2c=cooling_d2c, gen_mw=gen_mw)
     risks = risk_register(greenfield=greenfield, kw=kw, d2c=cooling_d2c, it_mw=it_mw,
                           months_to_power=i.get("months_to_power") if greenfield else None, items=sch["items"],
@@ -769,3 +774,8 @@ def plan(*, it_mw, racks, kw, cooling_d2c, liquid, onsite_hv, greenfield, i, pla
     out = {"schedule": sch, "load_banks": lb, "risks": risks, "estimate_label": ESTIMATE_LABEL}
     out["tables"] = tables(out)
     return out
+
+
+def range_text(lo: float, hi: float) -> str:
+    a, b = math.floor(lo), math.ceil(hi)
+    return f"about {a} months from start" if b <= a else f"about {a}–{b} months from start"

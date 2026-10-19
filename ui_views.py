@@ -6,8 +6,12 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import buildcx as CX
+import codes as CD
+import costlines as CL
 import engine as E
+import guide as G
 import platforms as PL
+import procurement as PR
 import report as R
 from ui_common import AMBER, GREEN, GREY, dark, esc_md, metric
 
@@ -56,13 +60,50 @@ def summary(res):
     h = R.headline(res)
     rec = res["recommendation"]
     c = st.columns(4)
-    metric(c[0], h["label_total"], R.money(h["total"]), f"+ {R.money(h['it_total'])} IT hardware")
+    off = len(h["excluded"])
+    metric(c[0], h["label_total"], R.money(h["total"]),
+           f"{off} line{'s' if off != 1 else ''} not ticked · all {R.money(h['total_all'])}")
     metric(c[1], h["label_per_mw"], f"{R.money(h['per_mw'])}/MW", f"{h['it_mw']:,.1f} MW IT")
     metric(c[2], "Payback (incl. IT)", R.yrs(h["payback"]), f"NPV {R.money(h['npv'])}")
-    metric(c[3], "Ready for service", f"~{h['rfs']:.0f} months", "substantial completion, see Schedule tab")
+    metric(c[3], "Ready for IT (months)", h["rfs_text"].replace("about ", "").replace(" months from start", ""),
+           "months from start (approx.)")
     _sc(f"**Recommendation: {rec['headline']}.** {rec['detail']}")
     _cp("Key design: " + R.key_design_line(res))
     _cp(CX.ESTIMATE_LABEL)
+
+
+def init_include_state():
+    """Checkbox state for the 'Include in total' list (read by the app before the engine runs)."""
+    for k in CL.KEYS:
+        st.session_state.setdefault(f"inc_{k}", CL.DEFAULT_INCLUDE[k])
+
+
+def include_from_state() -> dict:
+    return {k: bool(st.session_state.get(f"inc_{k}", CL.DEFAULT_INCLUDE[k])) for k in CL.KEYS}
+
+
+def cost_checklist(res):
+    cl = R.cost_lines(res)
+    mw = R.headline(res)["it_mw"]
+    _mk("**End-to-end cost: tick a line to include it in the total.** The total and cost per MW are always the "
+        "sum of the ticked lines (the summary, PDF, exports and narrative use the same total).")
+    hdr = st.columns([5, 1.4, 1.4, 4])
+    for col, t in zip(hdr, ("Include in total", "$M", "$M / MW", "Source type")):
+        col.caption(t)
+    for r in cl["rows"]:
+        c = st.columns([5, 1.4, 1.4, 4])
+        c[0].checkbox(r["label"], key=f"inc_{r['key']}")
+        c[1].markdown(f"{r['amount'] / M:,.1f}")
+        c[2].markdown(f"{r['amount'] / M / mw:,.2f}")
+        c[3].caption(esc_md(r["source"]))
+    c = st.columns([5, 1.4, 1.4, 4])
+    c[0].markdown("**Total project cost (ticked lines)**")
+    c[1].markdown(f"**{cl['total'] / M:,.1f}**")
+    c[2].markdown(f"**{cl['per_mw'] / M:,.2f}**")
+    c[3].caption(esc_md(f"Every line ticked: {R.money(cl['total_all'])} ({R.money(cl['per_mw_all'])}/MW)"))
+    _cp("Defaults: everything ticked except on-site/bridging power, GPU and server hardware and the AI network "
+        "fabric (often bought separately by the IT owner). 'Include GPU / IT hardware in ROI' (Advanced) still adds "
+        "IT to the payback when those lines are unticked.")
 
 
 # ------------------------------------------------------------------ costs
@@ -71,7 +112,7 @@ def tab_costs(res):
         d = res["design"]
         _mk(f"**One new build** · {d['platform']['label']} · {d['racks']:,} racks · {d['it_mw']:,.1f} MW IT · "
                     f"{d['cooling']}" + (f" ({E.D2C_NOTE})" if d["cooling_auto"] else ""))
-        _df(R.cost_table(res))
+        cost_checklist(res)
         g = R.group_table(res)
         fig = go.Figure(go.Bar(x=g["$M"], y=g["Group"], orientation="h", marker_color=GREEN,
                                text=[f"${v:,.0f}M ({s:.0%})" for v, s in zip(g["$M"], g["Share"])],
@@ -87,12 +128,15 @@ def tab_costs(res):
                    f"(range {R.money(d['platform']['low'])}-{R.money(d['platform']['high'])}) in 2026 dollars, N. Virginia, "
                    f"N+1, including general conditions and 4% contingency; then contingency set to "
                    f"{d['cost']['contingency_pct']:.0%}, location factor {d['cost']['region_factor']:.2f}, owner costs and "
-                   "escalation. IT hardware is separate.")
+                   "escalation. The cost lines above split this facility cost (they add back to it exactly) and add "
+                   "spares, racks where the platform price excludes them, bridging power and IT.")
         return
     cur, f, up = res["current"], res["future"], res["upgrade"]
     _mk(f"**Existing building** · {cur['racks']:,} racks · current {cur['kw']:.0f} kW/rack ({cur['cooling']}) "
                 f"vs future-ready {f['kw']:.0f} kW/rack ({f['cooling']})")
-    _df(R.cost_table(res))
+    cost_checklist(res)
+    _mk("**Current vs future-ready: like-for-like construction cost** (same scope both ways)")
+    _df(R.fitout_compare_table(res))
     sysn = list(f["systems"])
     fig = go.Figure([go.Bar(name="Current", x=sysn, y=[cur["systems"][k] / M for k in sysn], marker_color=GREY),
                      go.Bar(name="Future-ready", x=sysn, y=[f["systems"][k] / M for k in sysn], marker_color=GREEN)])
@@ -228,10 +272,12 @@ def _gantt(S):
 
 def tab_schedule(res):
     S = res["cx"]["schedule"]
-    _mk(f"**Ready for IT (substantial completion) in about {S['sc']:.0f} months, {S['sc_date']:%b %Y}.** "
-        f"Critical path: {S['critical_path']}. Notice to proceed month {S['ntp']:.1f}; build "
+    _mk(f"**Ready for IT (substantial completion): {S['range_text']}.** "
+        f"Critical path: {S['critical_path']}. Notice to proceed about month {S['ntp']:.0f}; build "
         f"{S['build_months']:.1f} months{' (auto from MW)' if S['build_months_auto'] else ''}; energization starts "
-        f"month {S['energization']:.1f}; commissioning starts month {S['cx_start']:.1f}.")
+        f"about month {S['energization']:.0f}; commissioning about month {S['cx_start']:.0f}.")
+    _cp("Range: shortest published lead times with no weather allowance, to the longest lead times with 10% more "
+        "weather and productivity allowance. Months count from the start (go decision).")
     st.plotly_chart(_gantt(S), width="stretch")
     _cp(f"Work week {S['overtime_hours']} h (field-work factor {S['overtime_factor']:.2f}), weather "
         f"+{S['weather']:.0%} on exterior work, congestion +{S['congestion']:.0%} on interior work and commissioning. "
@@ -242,7 +288,7 @@ def tab_schedule(res):
                            text=[f"{m:.0f} mo" for m in t["Months"]], textposition="auto"))
     st.plotly_chart(dark(fig, 240, title="What sets the date: completion month if each constraint acted alone"),
                     width="stretch")
-    _mk("**Order-by dates** (reverse schedule from the date each item is needed on site)")
+    _mk("**When to order** (reverse schedule from when each item is needed on site)")
     _df(R.order_by_table(res))
     _cp(f"Chain per item: specification and RFQ {CX.PROCUREMENT['spec_rfq']} wk + bids {CX.PROCUREMENT['bids']} wk + "
         f"award/PO {CX.PROCUREMENT['po']} wk + submittals {CX.SUBMITTAL_WEEKS} wk + quoted lead + "
@@ -252,6 +298,11 @@ def tab_schedule(res):
     _mk("**Risk register** (auto-enabled from your inputs; impact in months, no probabilities)")
     show_all = st.toggle("Show inactive risks too", False, key="risk_all")
     _df(R.risk_table(res, active_only=not show_all))
+    _mk("**How to avoid delays**")
+    for x in G.HOW_TO_AVOID:
+        _mk(f"- {x}")
+    with st.expander("Common causes of delay and proven fixes (public reporting)"):
+        _df(R.delays_table())
     with st.expander("Long-lead equipment, 2026 ranges"):
         _df(R.long_lead_table())
     for r_ in res["warnings"]:
@@ -314,8 +365,8 @@ SOURCES = [
     ("Public GPU rental trackers, Oct 2026", "H100 about $2.4-3.6/GPU-hr; B200 $3.7-8.6; GB200/GB300 $6-18"),
     ("ASHRAE TC 9.9 thermal and liquid cooling guidance", "Recommended inlet 18-27 C for all air classes with "
      "dew-point limits; liquid classes W17-W45 and W+"),
-    ("NFPA 13, 20, 22, 70, 110, 2001, 51B; IPC; NETA ATS; TIA-942-B; BICSI 002; AACE 18R-97",
-     "Fire, electrical, emergency power, plumbing, testing, cabling and estimate-class rules used in the calculations"),
+    ("US codes and standards (NFPA, ICC, ASHRAE, TIA, BICSI, IEEE, UL, OSHA, EPA)",
+     "Latest editions listed in the Codes & procurement tab; the design calculations follow their rules"),
 ]
 
 
@@ -335,9 +386,8 @@ def tab_assumptions(res):
             ("Discount rate", "8%", "Assumption"),
             ("Cooling rule", "Direct-to-chip liquid above 45 kW/rack", "Air about 30 kW, rear-door about 45 kW practical limits")]
     _df(pd.DataFrame(rows, columns=["Item", "Value", "Basis"]))
-    _mk("**Estimate class**")
+    _mk("**Estimate accuracy**")
     _cp(CX.ESTIMATE_LABEL)
-    _df(R.aace_table())
     _mk("**Stage gates 0-7**")
     _df(R.cx_tables(res)["stage_gates"])
     _mk("**Specification quick reference** (current codes and standards)")
@@ -354,4 +404,25 @@ def tab_assumptions(res):
     _mk("**Public sources**")
     for a, b in SOURCES:
         _mk(f"- **{a}**: {b}")
-    _cp(f"{E.DISCLAIMER} Full list of numbers, ranges and sources: docs/VERIFICATION.md.")
+    _cp(f"{E.DISCLAIMER} {G.LEGAL} Full list of numbers, ranges and sources: docs/VERIFICATION.md.")
+
+
+# ------------------------------------------------------------------ codes & procurement
+def tab_codes(res):
+    _mk("**Codes and standards to follow** (latest US editions, each checked on the publisher's site)")
+    _cp(CD.CODES_NOTE)
+    df = R.codes_table()
+    for g, grp in df.groupby("Group", sort=False):
+        _mk(f"**{g}**")
+        _df(grp.drop(columns=["Group"]))
+    _mk("**Confirm locally**")
+    for x in CD.CONFIRM_LOCALLY:
+        _mk(f"- [ ] {x}")
+    st.divider()
+    _mk("**US procurement: long-lead packages**")
+    _cp(PR.TARIFF_2026)
+    _df(R.procurement_table())
+    _mk("**Verified suppliers** (each backed by a public source; full links in docs/VERIFICATION.md)")
+    _in(PR.DISCLAIMER)
+    _df(R.supplier_table().drop(columns=["URL"]))
+
