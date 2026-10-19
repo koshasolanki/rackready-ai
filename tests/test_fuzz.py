@@ -10,7 +10,6 @@ import re
 import sys
 
 import pandas as pd
-import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import costlines as CL  # noqa: E402
@@ -61,36 +60,32 @@ def _check(inp, deep=False):
         E.summary_for_llm(r)
 
 
-@pytest.mark.parametrize("ptype", E.PROJECT_TYPES)
-def test_every_platform_mode_redundancy_horizon(ptype):
+def test_every_platform_redundancy_horizon():
     for n, (plat, res_, hz) in enumerate(itertools.product(PLATS, list(E.RESILIENCE), list(E.HORIZONS))):
-        _check({"project_type": ptype, "platform": plat, "resilience": res_, "horizon": hz}, deep=(n % 9 == 0))
+        _check({"platform": plat, "resilience": res_, "horizon": hz}, deep=(n % 9 == 0))
 
 
 def test_random_edge_inputs():
     rng = random.Random(1)
     for n in range(150):
-        inp = {"project_type": rng.choice(E.PROJECT_TYPES), "platform": rng.choice(PLATS),
+        inp = {"platform": rng.choice(PLATS),
                "resilience": rng.choice(list(E.RESILIENCE)), "horizon": rng.choice(list(E.HORIZONS)),
                "region": rng.choice(E.REGION_NAMES), "size_by": rng.choice(["IT MW", "Racks"]),
                "it_mw": rng.choice([0.5, 1, 3.3, 50, 250, 999, 2000]), "racks": rng.choice([1, 2, 7, 200, 5000, 50000]),
                "custom_kw": rng.choice([5, 30, 45, 45.1, 46, 300, 1500]),
                "cooling": rng.choice(["Air", "Hybrid (rear-door + air)", "Direct-to-chip (D2C) liquid", None]),
-               "current_kw": rng.choice([3, 15, 45, 60]),
-               "current_cooling": rng.choice(["Air", "Hybrid (rear-door + air)"]),
                "utilization": rng.choice([0.3, 1.0]), "years": rng.choice([3, 20]),
                "gpu_price": rng.choice([None, 0.25, 60]), "power_cost": rng.choice([None, 0.005, 0.5]),
                "price_change": rng.choice([-0.25, 0.05]), "contingency": rng.choice([0, 0.25]),
                "owner_pct": rng.choice([0, 0.1]), "escalation": rng.choice([0, 0.12]),
                "land_per_acre": rng.choice([None, 50e6]), "months_to_power": rng.choice([6, 120]),
                "design_months": rng.choice([2, 36]), "construction_months": rng.choice([None, 1, 60]),
-               "fitout_build_months": rng.choice([None, 1, 36]), "overtime_hours": rng.choice([40, 70]),
+               "overtime_hours": rng.choice([40, 70]),
                "weather_factor": rng.choice([0, 0.3]), "congestion_factor": rng.choice([0, 0.3]),
                "fuel_hours": rng.choice([4, 168]), "battery_min": rng.choice([1, 30]),
                "voltage": rng.choice([415.0, 480.0]), "tcs_dT": rng.choice([5, 20]),
                "future_kw": rng.choice([None, 10, 2000]), "future_year": rng.choice([None, 1, 20]),
                "future_probability": rng.choice([0.1, 1.0]), "spare_utility_pct": rng.choice([0, 1.0]),
                "overhead_pct": rng.choice([0, 0.4]), "include_it": rng.choice([True, False]),
-               "include": {k: rng.random() < 0.5 for k in CL.KEYS},
-               "current_gpus": rng.choice([0, 72]), "current_gpu_price": rng.choice([0.0, 20.0])}
+               "include": {k: rng.random() < 0.5 for k in CL.KEYS}}
         _check(inp, deep=(n % 6 == 0))

@@ -9,7 +9,6 @@ Greenfield: the facility construction cost (platform $/MW basis, see platforms.p
 whose sum equals it exactly, so the per-MW facility benchmark is unchanged. Lines that were not in the
 facility basis (spares and first fill, racks for HGX-type platforms, bridging power, GPU hardware and the
 AI network) are added on top.
-Fit-out: the trade-rate systems, soft cost, contingency and escalation are regrouped the same way.
 """
 from __future__ import annotations
 
@@ -57,7 +56,7 @@ RATES = {
     "onsite_margin": 1.10,           # plant sized at 1.1 x facility peak
     "rack_per_rack": 6_000.0,        # rack enclosure, HGX-type platforms (NVL-type prices include the rack)
     "rpdu_per_kw": 120.0,            # rack PDUs per kW
-    "manifold_per_rack": {AIR: 0.0, HYBRID: 18_000.0, D2C: 30_000.0},   # same as the fit-out trade rates
+    "manifold_per_rack": {AIR: 0.0, HYBRID: 18_000.0, D2C: 30_000.0},
 }
 
 
@@ -128,29 +127,6 @@ def greenfield_lines(c: dict, dz: dict, p: dict, it_mw: float, racks: float, esc
                     "racks": racks_carved, "substation": substation, "contingency": cont, "core": core,
                     "racks_new": racks_new}
     return out
-
-
-def fitout_lines(f: dict, p: dict, i: dict, rates: dict, reg: float, interconnect: float,
-                 inc: dict | None = None) -> dict:
-    """Regroup the future-ready fit-out into the same lines (sum of the regrouped lines = fit-out cost)."""
-    S = f["systems"]
-    racks, kw, gpus = f["racks"], f["kw"], p.get("gpus", 0)
-    rk = racks * (rates["rack_per_rack"] + rates["rpdu_per_kw"] * kw) * reg
-    cab = racks * (rates["cabling_per_rack"] + rates["cabling_per_gpu"] * gpus) * reg
-    facility = sum(v for k_, v in S.items() if k_.startswith(("Electrical", "Mechanical", "Structure", "Fire")))
-    liquid = S.get("Liquid cooling: CDUs, manifolds (Div 23)", 0.0)
-    controls = S.get("Controls (Div 25)", 0.0)
-    cx = RATES["cx_pct"] * f["direct"]
-    v = f["design"]["v"]
-    elec = S.get("Electrical (Div 26)", 0.0)
-    mech = S.get("Mechanical (Div 23)", 0.0) + liquid
-    amounts = {"facility": facility, "land": 0.0, "interconnect": interconnect,
-               "onsite": v["fac_peak_kw"] * RATES["onsite_margin"] * RATES["onsite_per_kw"],
-               "gpu": racks * p["it_per_rack"], "fabric": p["fabric_per_mw"] * f["it_mw"], "fiber": cab,
-               "racks": rk + liquid, "security": controls, "design": f["soft"] - cx, "commissioning": cx,
-               "contingency": f["contingency"] + f["escalation"],
-               "spares": RATES["spares_pct"] * (elec + mech) + v.get("fuel_gal", 0.0) * RATES["diesel_per_gal"]}
-    return _finish(amounts, inc, f["it_mw"])
 
 
 def fabric_share(p: dict) -> float:

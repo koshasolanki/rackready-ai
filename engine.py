@@ -1,15 +1,12 @@
 """
 RackReady AI - deterministic cost engine.
 
-Two project types:
-  * Greenfield: ONE new build from scratch, sized by IT MW or racks for a GPU platform. Facility cost
-    = platform cost basis ($/MW IT, see platforms.py) x IT MW, split by CSI division, then adjusted
-    for resilience (counted from the design calculations), contingency, location, owner costs and
-    escalation; land, utility interconnection and IT hardware are added separately.
-  * Existing building fit-out: current (legacy) racks vs a future-ready fit-out for the GPU platform
-    in the same hall, plus "build current now, retrofit later". Trade unit rates in FITOUT_RATES.
+Greenfield only: ONE new build from scratch, sized by IT MW or racks for a GPU platform. Facility cost
+= platform cost basis ($/MW IT, see platforms.py) x IT MW, split by CSI division, then adjusted for
+resilience (counted from the design calculations), contingency, location, owner costs and escalation;
+land, utility interconnection and IT hardware are added separately.
 
-Both modes add a future-proof horizon: a target rack density from the public GPU roadmap, priced
+A future-proof horizon adds: a target rack density from the public GPU roadmap, priced
 three ways: build for today and retrofit later / build today with pre-installed provisions /
 build the full future design on day one.
 
@@ -26,7 +23,7 @@ import costlines as CL
 import design as DS
 import guide as G
 import platforms as PL
-from design import AIR, COOLING_TYPES, D2C, D2C_AUTO_KW, HYBRID, effective_cooling
+from design import D2C, HYBRID, effective_cooling
 
 D2C_NOTE = "D2C auto-selected above 45 kW/rack"
 DISCLAIMER = "Early budget estimate (±30–50%), not a bid."
@@ -34,8 +31,7 @@ ESTIMATE_NOTE = ("Early budget estimate (±30–50%), not a bid: built from per-
                  "drawings exist, so the final cost can land well above or below it.")
 HOURS = 8760
 
-FITOUT, GREENFIELD = "Existing building fit-out", "Greenfield (new build)"
-PROJECT_TYPES = [GREENFIELD, FITOUT]
+GREENFIELD = "Greenfield (new build)"
 
 RESILIENCE = {
     "N": "N (Tier I-style, no redundancy)",
@@ -71,42 +67,6 @@ REGIONS = {
 }
 REGION_NAMES = list(REGIONS)
 
-# --------------------------------------------------------------------------- fit-out trade rates
-FITOUT_RATES = {
-    # Div 26 electrical, $ per kW IT (N+1)
-    "electrical_per_kw": {"MV service & transformers": 650, "Switchgear & switchboards": 900,
-                          "UPS & batteries": 950, "Generators & fuel": 850, "Busway, PDUs & RPPs": 450,
-                          "Grounding, lighting & branch power": 250},
-    "hd_electrical_premium_per_kw": 600, "hd_threshold_kw": 50,
-    # Div 23 mechanical, $ per kW IT by cooling type
-    "mechanical_per_kw": {
-        AIR: {"Chillers / central plant": 950, "CRAH / fan walls": 850, "Piping & pumps": 350,
-              "Cooling towers": 450},
-        HYBRID: {"Chillers / central plant": 900, "CRAH / fan walls": 500, "Rear-door heat exchangers": 650,
-                 "Piping & pumps": 450, "Cooling towers": 400},
-        D2C: {"Trim chillers": 450, "Residual air (fan walls / CRAH)": 350,
-              "Piping, headers & pumps (FWS/TCS)": 950, "Dry / adiabatic coolers": 900}},
-    "cdu_skid": PL.UNIT_PRICES["cdu_skid"],
-    "manifold_per_rack": {AIR: 0, HYBRID: 18_000, D2C: 30_000},
-    "controls_per_kw": 250, "white_sf_per_rack": 30, "support_sf_per_mw": 3_000,
-    "shell_per_gsf": 300, "fire_per_gsf": 14, "heavy_slab_per_sf": 75, "heavy_per_rack": 2_500,
-    "rack_per_rack": 6_000, "rpdu_per_kw": 120, "cabling_per_rack": 12_000, "cabling_per_gpu": 400,
-    "soft_pct": 0.14, "contingency_pct": 0.10,
-    "redundancy": {"N": (0.85, 0.90), "N+1": (1.00, 1.00), "N+2": (1.06, 1.00), "2N": (1.35, 1.20)},
-    "retrofit_premium": 1.35, "retrofit_demo_pct": 0.06, "retrofit_downtime_months": 4, "retrofit_year": 3,
-    "retrofit_reuse": {"Electrical (Div 26)": 0.45, "Mechanical (Div 23)": 0.15,
-                       "Liquid cooling: CDUs, manifolds (Div 23)": 0.0, "Controls (Div 25)": 0.50,
-                       "Structure & architecture (Div 03-09)": 0.80, "Fire protection (Div 21)": 0.60,
-                       "Racks, power strips & cabling (Div 27)": 0.40},
-    "design_months": 4, "construction_months": 10,
-}
-FITOUT_SYSTEM_DIVS = {   # map fit-out systems to division codes (for the horizon ratio method)
-    "Electrical (Div 26)": ["26"], "Mechanical (Div 23)": ["23"],
-    "Liquid cooling: CDUs, manifolds (Div 23)": ["23"], "Controls (Div 25)": ["25"],
-    "Structure & architecture (Div 03-09)": ["03", "04", "05", "06", "07", "08", "09"],
-    "Fire protection (Div 21)": ["21"], "Racks, power strips & cabling (Div 27)": ["27"],
-}
-
 # Share of the future upgrade that is worth pre-installing on day one ("provisions"): things that
 # are cheap now and very expensive later (structure, slab, site, pathways, oversized headers, pads).
 PROVISION_SHARE = {"01": None, "02": 1.0, "03": 1.0, "04": 0.5, "05": 1.0, "06": 0.5, "07": 1.0,
@@ -126,13 +86,10 @@ LONG_LEAD = [(name, lo, hi, basis) for _k, name, lo, hi, _t, basis in CX.LEAD_TI
 TRANSFORMER_WEEKS = 128
 
 DEFAULT_INPUTS = {
-    "project_type": GREENFIELD, "project_name": "AI campus - 100 MW",
+    "project_name": "AI campus - 100 MW",
     "size_by": "IT MW", "it_mw": 100.0, "racks": 200,
     "platform": PL.DEFAULT_PLATFORM, "custom_kw": 135.0, "custom_gpus": None, "custom_it_per_rack": None,
     "region": "US - Northern Virginia", "resilience": "N+1", "horizon": "10 years", "cooling": None,
-    # fit-out: the existing hall today
-    "current_kw": 15.0, "current_cooling": AIR, "current_gpus": 8, "current_gpu_price": 2.50,
-    "current_gpu_hw": 30_000,
     # operations & revenue
     "power_cost": None, "utilization": 0.80, "years": 10, "gpu_price": None, "price_change": -0.08,
     "include_it": True, "include_fabric": True,
@@ -140,7 +97,7 @@ DEFAULT_INPUTS = {
     "contingency": 0.08, "owner_pct": 0.03, "escalation": 0.05, "land_per_acre": None,
     "interconnect": None, "months_to_power": 36, "design_months": 9, "construction_months": None,
     # schedule (None / 0 = auto from MW)
-    "fitout_build_months": None, "overtime_hours": 40, "weather_factor": 0.05,
+    "overtime_hours": 40, "weather_factor": 0.05,
     "congestion_factor": 0.0,
     # engineering
     "fuel_hours": 48.0, "battery_min": 5.0, "voltage": 415.0, "tcs_dT": 10.0,
@@ -153,17 +110,13 @@ DEFAULT_INPUTS = {
 
 PRESETS = {
     "100 MW AI campus (greenfield, GB300 NVL72)": {
-        "project_type": GREENFIELD, "project_name": "AI campus - 100 MW", "size_by": "IT MW", "it_mw": 100.0,
+        "project_name": "AI campus - 100 MW", "size_by": "IT MW", "it_mw": 100.0,
         "platform": "GB300 NVL72", "region": "US - Northern Virginia", "resilience": "N+1",
         "horizon": "10 years"},
     "10 MW edge AI hall (greenfield, H200 HGX)": {
-        "project_type": GREENFIELD, "project_name": "Edge AI hall - 10 MW", "size_by": "IT MW", "it_mw": 10.0,
+        "project_name": "Edge AI hall - 10 MW", "size_by": "IT MW", "it_mw": 10.0,
         "platform": "H200 HGX", "region": "US - Dallas / Texas", "resilience": "N+1", "horizon": "5 years",
         "cooling": HYBRID, "months_to_power": 18, "design_months": 6},
-    "Existing-hall fit-out (200 racks, 15 kW -> GB300)": {
-        "project_type": FITOUT, "project_name": "Existing hall - 200 racks", "size_by": "Racks", "racks": 200,
-        "platform": "GB300 NVL72", "region": "US - Northern Virginia", "resilience": "N+1",
-        "horizon": "5 years", "current_kw": 15.0, "current_cooling": AIR},
 }
 DEFAULT_PRESET = next(iter(PRESETS))
 
@@ -172,10 +125,6 @@ def merged(inp: dict | None) -> dict:
     i = deepcopy(DEFAULT_INPUTS)
     i.update({k: v for k, v in (inp or {}).items()})
     return i
-
-
-def is_greenfield(i: dict) -> bool:
-    return str(i.get("project_type", "")).lower().startswith("greenfield")
 
 
 def _npv(rate, flows):
@@ -239,11 +188,11 @@ def _revenue_flows(invest, year1_rev, opex, hw, years, change, refresh_factor, l
     return flows, revs
 
 
-def _plan(i, p, it_mw, racks, dz, gf=True, needs_new_service=True, horizon_active=False):
+def _plan(i, p, it_mw, racks, dz, horizon_active=False):
     """Schedule, order-by dates, commissioning and risks (buildcx). months_to_rfs = substantial completion."""
     cx = CX.plan(it_mw=it_mw, racks=racks, kw=p["kw"], cooling_d2c=dz["cooling"] == D2C, liquid=dz["liquid"],
-                 onsite_hv=bool(dz.get("onsite_hv")), greenfield=gf, i=i, platform_status=p.get("status", "shipping"),
-                 horizon_active=horizon_active, needs_new_service=needs_new_service,
+                 onsite_hv=bool(dz.get("onsite_hv")), i=i, platform_status=p.get("status", "shipping"),
+                 horizon_active=horizon_active,
                  gen_mw=float(dz["params"].get("gen_mw", 3.0)))
     return cx["schedule"], cx
 
@@ -327,8 +276,7 @@ def run_greenfield(i: dict) -> dict:
                                "voltage": i.get("voltage"), "tcs_dT": i.get("tcs_dT")})
     c = greenfield_cost(p, it_mw, dz, i)
     h = i.get("horizon") or "Today only"
-    sch, cx = _plan(i, p, it_mw, racks, dz, gf=True,
-                    horizon_active=bool((i.get("future_kw") or HORIZONS.get(h) or 0) > p["kw"]))
+    sch, cx = _plan(i, p, it_mw, racks, dz, horizon_active=bool((i.get("future_kw") or HORIZONS.get(h) or 0) > p["kw"]))
     esc = (c["facility"] + c["owner"]) * _esc(i, sch["mid_point_months"])
     construction = c["facility"] + c["owner"] + esc + c["land"] + c["interconnect"]
     # IT and economics
@@ -340,14 +288,14 @@ def run_greenfield(i: dict) -> dict:
     lines = {r["label"]: r["amount"] for r in cl["rows"] if r["included"]}
     it_total = _it_total(i, cl, it_hw, fabric)
     eco = _economics(i, it_mw, dz, cl["non_it_total"], c["facility"], gpus, _gpu_price(i, p), it_total)
-    fut = future_paths(i, p, it_mw, cooling, dz, mode="greenfield", day1_cost=c, eco=eco)
+    fut = future_paths(i, p, it_mw, cooling, dz, day1_cost=c, eco=eco)
     d = {"platform": p, "kw": kw, "racks": racks, "it_mw": it_mw, "cooling": cooling, "cooling_auto": auto,
          "design": dz, "cost": c, "lines": lines, "escalation": esc, "capex": capex, "cost_lines": cl,
          "construction_basis": construction, "capex_all": cl["total_all"],
          "facility_per_mw": c["facility"] / it_mw, "capex_per_mw": capex / it_mw,
          "gsf": dz["v"]["gross_sf"], "facility_per_gsf": c["facility"] / dz["v"]["gross_sf"],
          "gpus": gpus, "it_hw": it_hw, "fabric": fabric, "schedule": sch, **eco}
-    res = {"mode": "greenfield", "inputs": i, "design": d, "future": fut, "long_lead": LONG_LEAD, "cx": cx}
+    res = {"inputs": i, "design": d, "future": fut, "long_lead": LONG_LEAD, "cx": cx}
     res["warnings"] = _warnings(res)
     res["checks"] = benchmark_checks(res)
     res["recommendation"] = recommendation(res)
@@ -400,7 +348,7 @@ def _target_platform(T: float) -> dict:
     return PL.custom_platform(T)
 
 
-def future_paths(i, p0, it_mw, cooling0, dz0, mode, day1_cost=None, eco=None, fit=None):
+def future_paths(i, p0, it_mw, cooling0, dz0, day1_cost, eco):
     h = i.get("horizon") or "Today only"
     T = i.get("future_kw") or HORIZONS.get(h)
     if not T or T <= p0["kw"] + 1e-9:
@@ -419,39 +367,22 @@ def future_paths(i, p0, it_mw, cooling0, dz0, mode, day1_cost=None, eco=None, fi
     Y = max(1, min(Y, years))
     reg = REGIONS[i["region"]]["factor"]
     # ---- division deltas (positive part), today's dollars
-    if mode == "greenfield":
-        mult = (1 + day1_cost["contingency_adj"] / day1_cost["base"]) * reg * (1 + float(i.get("owner_pct") or 0))
-        c0 = {d: p0["rate"] * it_mw * s * mult for d, s in p0["mix"].items()}
-        cT = {d: pT["rate"] * mw_T * s * mult for d, s in pT["mix"].items()}
-        rows = []
-        for d in PL.DIVISIONS:
-            delta = max(cT[d] - c0[d], 0.0)
-            code = d.split(" ")[0]
-            rows.append({"item": d, "group": PL.group_of(d), "today": c0[d], "future": cT[d], "delta": delta,
-                         "code": code})
-        nonzero = [r for r in rows if r["code"] != "01"]
-        tot = sum(r["delta"] for r in nonzero) or 1.0
-        gc_share = sum(r["delta"] * PROVISION_SHARE[r["code"]] for r in nonzero) / tot
-        for r in rows:
-            r["share"] = gc_share if r["code"] == "01" else PROVISION_SHARE[r["code"]]
-        replaced_base = sum(c0[d] for d in PL.DIVISIONS if d.split(" ")[0] in ("13", "23", "26"))
-        monthly_rev = _margin_in_year(eco, Y) / 12
-    else:
-        rows = []
-        f_soft = (1 + FITOUT_RATES["soft_pct"]) * (1 + FITOUT_RATES["contingency_pct"])
-        for sysname, cost in fit["systems"].items():
-            codes = FITOUT_SYSTEM_DIVS[sysname]
-            g0 = p0["rate"] * sum(s for d, s in p0["mix"].items() if d.split(" ")[0] in codes)
-            gT = pT["rate"] * sum(s for d, s in pT["mix"].items() if d.split(" ")[0] in codes)
-            ratio = (gT * mw_T) / (g0 * it_mw) if g0 else 1.0
-            delta = max(cost * (ratio - 1), 0.0) * f_soft
-            share = {"Structure & architecture (Div 03-09)": 1.0, "Mechanical (Div 23)": 0.40,
-                     "Liquid cooling: CDUs, manifolds (Div 23)": 0.40}.get(sysname, 0.25)
-            rows.append({"item": sysname, "group": sysname, "today": cost * f_soft, "future": cost * f_soft + delta,
-                         "delta": delta, "share": share, "code": sysname})
-        replaced_base = sum(v * f_soft for k, v in fit["systems"].items()
-                            if k.startswith(("Electrical", "Mechanical", "Liquid")))
-        monthly_rev = _margin_in_year(fit, Y) / 12
+    mult = (1 + day1_cost["contingency_adj"] / day1_cost["base"]) * reg * (1 + float(i.get("owner_pct") or 0))
+    c0 = {d: p0["rate"] * it_mw * s * mult for d, s in p0["mix"].items()}
+    cT = {d: pT["rate"] * mw_T * s * mult for d, s in pT["mix"].items()}
+    rows = []
+    for d in PL.DIVISIONS:
+        delta = max(cT[d] - c0[d], 0.0)
+        code = d.split(" ")[0]
+        rows.append({"item": d, "group": PL.group_of(d), "today": c0[d], "future": cT[d], "delta": delta,
+                     "code": code})
+    nonzero = [r for r in rows if r["code"] != "01"]
+    tot = sum(r["delta"] for r in nonzero) or 1.0
+    gc_share = sum(r["delta"] * PROVISION_SHARE[r["code"]] for r in nonzero) / tot
+    for r in rows:
+        r["share"] = gc_share if r["code"] == "01" else PROVISION_SHARE[r["code"]]
+    replaced_base = sum(c0[d] for d in PL.DIVISIONS if d.split(" ")[0] in ("13", "23", "26"))
+    monthly_rev = _margin_in_year(eco, Y) / 12
     delta = sum(r["delta"] for r in rows)
     prov = sum(r["delta"] * r["share"] for r in rows)
     F = FUTURE
@@ -475,7 +406,7 @@ def future_paths(i, p0, it_mw, cooling0, dz0, mode, day1_cost=None, eco=None, fi
         x["nominal_total"] = x["day1"] + x["later_nominal"] + x["downtime_cost"]
         x["pv_total"] = x["day1"] + x["idle_carry"] + prob * (x["later_nominal"] + x["downtime_cost"]) / disc
     best = min(paths, key=lambda x: x["pv_total"])
-    provisions = provision_list(p0, pT, dz0, dzT, T, spare, mode)
+    provisions = provision_list(p0, pT, dz0, dzT, T, spare)
     return {"active": True, "horizon": h, "horizon_text": HORIZON_TEXT.get(h, f"Target {T:,.0f} kW/rack"),
             "target_kw": T, "target_platform": pT, "target_mw": mw_T, "target_racks": racks_T,
             "target_cooling": cool_T, "design_T": dzT, "year": Y, "rows": rows, "delta": delta,
@@ -489,10 +420,9 @@ def _margin_in_year(eco, Y):
     return max(rev - eco["opex"], 0.0)
 
 
-def provision_list(p0, pT, dz0, dzT, T, spare, mode):
+def provision_list(p0, pT, dz0, dzT, T, spare):
     """Future-ready provisions: what to build in now, when to buy the rest, and why it pays."""
     v0, vT = dz0["v"], dzT["v"]
-    gf = mode == "greenfield"
     items = [
         ("Structure and floor load", f"Design the slab/structure for {pT['weight_lb']:,.0f} lb racks "
          f"({vT['rack_psf']:,.0f} psf on the footprint, {vT['caster_kn']:.1f} kN per caster) vs "
@@ -500,7 +430,7 @@ def provision_list(p0, pT, dz0, dzT, T, spare, mode):
          "Pre-install (cheap now, near-impossible later)",
          "Rack weight rises every generation; strengthening a live hall means shutdowns, shoring and coring."),
         ("Clear height", "Keep about 18-20 ft clear under structure in the data halls (slab-on-grade, overhead "
-         "busway, tray and liquid headers stacked in tiers).", "Structure now" if gf else "Check the existing hall",
+         "busway, tray and liquid headers stacked in tiers).", "Structure now",
          "Overhead services multiply with density; height cannot be added to a finished building."),
         ("Liquid cooling", f"Size headers and pipe galleries for {vT['tcs_lps'] / max(vT['taps'] / 2, 1) * 60:,.0f} L/min "
          f"per rack (today {v0['tcs_lps'] / max(v0['taps'] / 2, 1) * 60:,.0f}); valved taps for future CDUs.",
@@ -538,153 +468,20 @@ def provision_list(p0, pT, dz0, dzT, T, spare, mode):
     return [{"provision": a, "what": b, "when": c, "why": w} for a, b, c, w in items]
 
 
-# =============================================================================== FIT-OUT
-def fitout_scenario(name, racks, kw, cooling_chosen, gpus_per_rack, gpu_price, gpu_hw_each, i, p=None):
-    R = FITOUT_RATES
-    cooling, auto = effective_cooling(kw, cooling_chosen)
-    reg = REGIONS[i["region"]]["factor"]
-    fe, fm = R["redundancy"][i["resilience"]]
-    it_kw = racks * kw
-    it_mw = it_kw / 1000
-    hd = kw > R["hd_threshold_kw"]
-    elec = {k: v * it_kw * fe for k, v in R["electrical_per_kw"].items()}
-    if hd:
-        elec["High-density distribution premium"] = R["hd_electrical_premium_per_kw"] * it_kw * fe
-    mech = {k: v * it_kw * fm for k, v in R["mechanical_per_kw"][cooling].items()}
-    liquid = {}
-    if cooling == D2C:
-        lf = (p or {}).get("liquid", 0.85)
-        n_cdu = math.ceil(it_mw * lf / 1.6 - 1e-9)
-        n_cdu += DS.spares(n_cdu, i["resilience"], DS.DEFAULTS["cdu_group"])
-        liquid[f"CDUs ({n_cdu} x 1.6 MW)"] = n_cdu * R["cdu_skid"]
-    if R["manifold_per_rack"][cooling]:
-        liquid["Rack manifolds / rear doors"] = R["manifold_per_rack"][cooling] * racks
-    white = R["white_sf_per_rack"] * racks
-    gsf = white + R["support_sf_per_mw"] * it_mw
-    struct = {"Shell refurbishment & architectural fit-out": R["shell_per_gsf"] * gsf}
-    if hd:
-        struct["Heavy-rack slab strengthening & bracing"] = R["heavy_slab_per_sf"] * white + R["heavy_per_rack"] * racks
-    systems_detail = {
-        "Electrical (Div 26)": elec, "Mechanical (Div 23)": mech,
-        "Liquid cooling: CDUs, manifolds (Div 23)": liquid,
-        "Controls (Div 25)": {"BMS + EPMS": R["controls_per_kw"] * it_kw},
-        "Structure & architecture (Div 03-09)": struct,
-        "Fire protection (Div 21)": {"Pre-action sprinklers, VESDA, clean agent": R["fire_per_gsf"] * gsf},
-        "Racks, power strips & cabling (Div 27)": {"Racks, rPDUs, cabling, fibre": racks * (
-            R["rack_per_rack"] + R["rpdu_per_kw"] * kw + R["cabling_per_rack"] + R["cabling_per_gpu"] * gpus_per_rack)},
-    }
-    systems = {k: sum(v.values()) * reg for k, v in systems_detail.items()}
-    direct = sum(systems.values())
-    soft = direct * R["soft_pct"]
-    cont = (direct + soft) * R["contingency_pct"]
-    months_mid = R["design_months"] + R["construction_months"] / 2
-    esc = (direct + soft + cont) * _esc(i, months_mid)
-    capex = direct + soft + cont + esc
-    gpus = racks * gpus_per_rack
-    return {"name": name, "racks": racks, "kw": kw, "cooling": cooling, "cooling_chosen": cooling_chosen,
-            "cooling_auto": auto, "it_kw": it_kw, "it_mw": it_mw, "gsf": gsf, "systems": systems,
-            "systems_detail": {k: {a: b * reg for a, b in v.items()} for k, v in systems_detail.items()},
-            "direct": direct, "soft": soft, "contingency": cont, "escalation": esc, "capex": capex,
-            "capex_per_mw": capex / it_mw if it_mw else 0, "gpus": gpus, "gpu_price": gpu_price,
-            "gpu_hw": gpus * gpu_hw_each if i.get("include_it", True) else 0.0,
-            "cooling_ok": kw <= DS.MAX_KW[cooling], "cooling_max": DS.MAX_KW[cooling]}
-
-
-def run_fitout(i: dict) -> dict:
-    p = _platform(i)
-    if i.get("size_by") == "IT MW":
-        racks = math.ceil(float(i["it_mw"]) * 1000 / p["kw"] - 1e-9)
-    else:
-        racks = int(i["racks"])
-    cur_p = dict(PL.custom_platform(float(i["current_kw"])), weight_lb=1_200, rack_w_m=0.6, rack_d_m=1.2,
-                 white_sf=FITOUT_RATES["white_sf_per_rack"])
-    cur = fitout_scenario("Current", racks, float(i["current_kw"]), i.get("current_cooling") or AIR,
-                          int(i["current_gpus"]), float(i["current_gpu_price"]), float(i["current_gpu_hw"]), i, cur_p)
-    fut_cool_choice = i.get("cooling")
-    fut = fitout_scenario("Future-ready", racks, p["kw"], fut_cool_choice, p["gpus"], _gpu_price(i, p),
-                          p["it_per_rack"] / max(p["gpus"], 1), i, p)
-    for s, pp in ((cur, cur_p), (fut, p)):
-        dz = _design(pp, s["racks"], s["cooling"], i, 0.0, gsf_per_mw=s["gsf"] / max(s["it_mw"], 1e-9))
-        s["design"] = dz
-    new_service = fut["design"]["v"]["service_mva"] > cur["design"]["v"]["service_mva"] * 1.1
-    inter = (float(i["interconnect"]) if i.get("interconnect") is not None
-             else 80_000 * fut["design"]["v"]["service_mw"] if new_service else 0.0)
-    cl = CL.fitout_lines(fut, p, i, FITOUT_RATES, REGIONS[i["region"]]["factor"], inter, i.get("include"))
-    fut["cost_lines"] = cl
-    fut["construction_cost"] = fut["capex"]
-    fut["checked_total"] = cl["total"]
-    fut_it = _it_total(i, cl, cl["rows"][CL.KEYS.index("gpu")]["amount"], cl["rows"][CL.KEYS.index("fabric")]["amount"])
-    for s in (cur, fut):
-        if s is fut:
-            eco = _economics(i, s["it_mw"], s["design"], cl["non_it_total"], s["capex"], s["gpus"], s["gpu_price"], fut_it)
-        else:
-            eco = _economics(i, s["it_mw"], s["design"], s["capex"], s["capex"], s["gpus"], s["gpu_price"], s["gpu_hw"])
-        s.update(eco)
-    up = _retrofit(cur, fut, i)
-    fut_paths = future_paths(i, p, fut["it_mw"], fut["cooling"], fut["design"], mode="fitout", fit=fut)
-    sch, cx = _plan(i, p, fut["it_mw"], fut["racks"], fut["design"], gf=False,
-                    needs_new_service=new_service, horizon_active=bool(fut_paths.get("active")))
-    res = {"mode": "fitout", "inputs": i, "platform": p, "current": cur, "future": fut, "upgrade": up, "cost_lines": cl,
-           "future_paths": fut_paths, "long_lead": LONG_LEAD, "schedule": sch, "cx": cx}
-    res["warnings"] = _warnings(res)
-    res["checks"] = benchmark_checks(res)
-    res["recommendation"] = recommendation(res)
-    return res
-
-
-def _retrofit(cur, fut, i):
-    R = FITOUT_RATES
-    Y = min(R["retrofit_year"], int(i["years"]))
-    rows, direct = [], 0.0
-    for sysname, fcost in fut["systems"].items():
-        ccost = cur["systems"].get(sysname, 0.0)
-        reused = ccost * R["retrofit_reuse"].get(sysname, 0.0)
-        new = max(fcost - reused, 0.0) * R["retrofit_premium"]
-        direct += new
-        rows.append((sysname, ccost, fcost, reused, new))
-    demo = cur["direct"] * R["retrofit_demo_pct"]
-    direct += demo
-    soft = direct * R["soft_pct"]
-    cont = (direct + soft) * R["contingency_pct"]
-    retro = (direct + soft + cont) * (1 + float(i.get("escalation") or 0)) ** Y
-    downtime = cur["revenue"] / 12 * R["retrofit_downtime_months"]
-    H, r = int(i["years"]), OPEX["discount_rate"]
-    fa = fut["cash_flows"]
-    fb = [-(cur["capex"] + cur["it_total"])]
-    for y in range(1, H + 1):
-        if y < Y:
-            cf = cur["cash_flows"][y]
-        elif y == Y:
-            cf = cur["cash_flows"][y] - downtime - retro - fut["it_total"]
-        else:
-            cf = fut["cash_flows"][min(y - Y, len(fut["cash_flows"]) - 1)]
-        fb.append(cf)
-    up = {"year": Y, "rows": rows, "demo": demo, "retrofit_capex": retro, "downtime_cost": downtime,
-          "downtime_months": R["retrofit_downtime_months"], "day_one_capex": fut["capex"],
-          "path_b_total": cur["capex"] + retro + downtime, "day_one_premium": fut["capex"] - cur["capex"],
-          "penalty": cur["capex"] + retro + downtime - fut["capex"], "npv_a": _npv(r, fa), "npv_b": _npv(r, fb),
-          "flows_a": fa, "flows_b": fb}
-    up["recommended"] = ("Fit out future-ready now" if up["npv_a"] >= up["npv_b"]
-                         else "Keep the current design, retrofit later")
-    return up
-
-
 # =============================================================================== checks
 def _warnings(res):
     w = []
     i = res["inputs"]
-    designs = ([("Design", res["design"])] if res["mode"] == "greenfield"
-               else [("Current", res["current"]), ("Future-ready", res["future"])])
-    for name, d in designs:
-        kw = d["kw"]
-        chosen = i.get("current_cooling") if name == "Current" else i.get("cooling")
-        if d["cooling_auto"] and chosen and chosen != D2C:
-            w.append(f"{name}: {kw:.0f} kW/rack is above 45 kW/rack, so direct-to-chip (D2C) liquid cooling was "
-                     f"selected automatically ({chosen} cannot cool this density).")
-        if kw > DS.MAX_KW[d["cooling"]]:
-            w.append(f"{name}: {kw:.0f} kW/rack is above what {d['cooling']} can practically cool "
-                     f"(about {DS.MAX_KW[d['cooling']]:.0f} kW/rack). Choose rear-door (Hybrid) or D2C.")
-    p = res["design"]["platform"] if res["mode"] == "greenfield" else res["platform"]
+    d = res["design"]
+    kw = d["kw"]
+    chosen = i.get("cooling")
+    if d["cooling_auto"] and chosen and chosen != D2C:
+        w.append(f"Design: {kw:.0f} kW/rack is above 45 kW/rack, so direct-to-chip (D2C) liquid cooling was "
+                 f"selected automatically ({chosen} cannot cool this density).")
+    if kw > DS.MAX_KW[d["cooling"]]:
+        w.append(f"Design: {kw:.0f} kW/rack is above what {d['cooling']} can practically cool "
+                 f"(about {DS.MAX_KW[d['cooling']]:.0f} kW/rack). Choose rear-door (Hybrid) or D2C.")
+    p = d["platform"]
     if p.get("status") == "announced":
         w.append(f"{p['label']}: announced roadmap product. Rack power, weight, price and rental rate are estimates; "
                  "confirm with the platform and system makers before committing budget.")
@@ -692,19 +489,12 @@ def _warnings(res):
         w.append(f"{p['kw']:,.0f} kW/rack is beyond announced products: the cost basis is speculative.")
     if p.get("status") == "estimated":
         w.append(f"{p['label']}: values are estimates (no public per-rack spec).")
-    if res["mode"] == "greenfield":
-        if float(i.get("months_to_power") or 36) < 18:
-            w.append("Months to utility power below 18 is optimistic for new large loads; 2026 market reports show average "
-                     "grid-connection waits above 4 years in primary markets. Use the utility's committed timing.")
-        if res["design"]["design"]["v"]["service_mva"] > 300:
-            w.append("Utility service above 300 MVA usually needs a dedicated transmission-level substation and "
-                     "multi-year interconnection studies.")
-    else:
-        if res["future"]["it_mw"] > 60:
-            w.append(f"The future-ready hall needs {res['future']['it_mw']:,.0f} MW of IT power: existing buildings "
-                     "rarely have this much utility capacity. Confirm firm MW with the utility.")
-        if i["current_kw"] >= res["future"]["kw"]:
-            w.append("The GPU platform is not denser than the current racks; the upgrade comparison is trivial.")
+    if float(i.get("months_to_power") or 36) < 18:
+        w.append("Months to utility power below 18 is optimistic for new large loads; 2026 market reports show average "
+                 "grid-connection waits above 4 years in primary markets. Use the utility's committed timing.")
+    if d["design"]["v"]["service_mva"] > 300:
+        w.append("Utility service above 300 MVA usually needs a dedicated transmission-level substation and "
+                 "multi-year interconnection studies.")
     return w
 
 
@@ -712,9 +502,7 @@ def _warnings(res):
 RANGES = {
     "facility_per_mw_air": (9e6, 16e6, "Air-cooled (<=30 kW/rack) facility $/MW IT: 2026 market outlooks $11.3M/MW shell & core, "
                                        "$17.6M/MW all-in"),
-    "fitout_per_mw": (7e6, 30e6, "Fit-out of an existing shell $/MW IT (no land, site or new shell): "
-                                 "assumption, below the all-in new-build ranges above"),
-    "facility_per_mw_hd": (14e6, 40e6, "High-density / liquid facility $/MW IT: $15-25M+/MW (AI fit-out up to $25M/MW; "
+    "facility_per_mw_hd": (14e6, 40e6, "High-density / liquid facility $/MW IT: $15-25M+/MW (AI interiors up to $25M/MW; "
                                        "Kyber-class above)"),
     "pue": (1.10, 1.55, "PUE: 2025 industry survey average 1.54; new >=20 MW sites 1.44; liquid-cooled about 1.1-1.25"),
     "power_cost": (0.05, 0.20, "Power $/kWh: US government data, industrial 2026 YTD about $0.09/kWh; Europe/Asia higher"),
@@ -730,19 +518,11 @@ GPU_MARKET = {   # Oct 2026 public trackers: (low, high) $/GPU-hr across spot, r
 
 def benchmark_checks(res):
     out = []
-    i = res["inputs"]
-    if res["mode"] == "greenfield":
-        d = res["design"]
-        fpm, kw, pue = d["facility_per_mw"], d["kw"], d["design"]["v"]["pue"]
-        wue = d["design"]["v"]["wue"]
-        price, pc, name = d["gpu_price"], d["power_cost"], d["platform"]["name"]
-    else:
-        f = res["future"]
-        fpm, kw, pue = f["capex_per_mw"], f["kw"], f["design"]["v"]["pue"]
-        wue = f["design"]["v"]["wue"]
-        price, pc, name = f["gpu_price"], f["power_cost"], res["platform"]["name"]
-    key = ("fitout_per_mw" if res["mode"] == "fitout" else
-           "facility_per_mw_air" if kw <= 30 else "facility_per_mw_hd")
+    d = res["design"]
+    fpm, kw, pue = d["facility_per_mw"], d["kw"], d["design"]["v"]["pue"]
+    wue = d["design"]["v"]["wue"]
+    price, pc, name = d["gpu_price"], d["power_cost"], d["platform"]["name"]
+    key = "facility_per_mw_air" if kw <= 30 else "facility_per_mw_hd"
     for k, val in ((key, fpm), ("pue", pue), ("power_cost", pc), ("transformer_weeks", TRANSFORMER_WEEKS),
                    ("wue", wue)):
         lo, hi, src = RANGES[k]
@@ -774,26 +554,17 @@ def target_sentence(f) -> str:
 
 
 def recommendation(res):
-    if res["mode"] == "greenfield":
-        d, f = res["design"], res["future"]
-        pb = d["payback"]
-        econ = "" if pb is not None else " It does not pay back within the analysis period."
-        if f["active"]:
-            return {"headline": f["best"], "detail": f"Lowest present cost over the {_hz(f['horizon'])} horizon, "
-                    f"with {target_phrase(f)}.{econ}"}
-        return {"headline": "Build as designed", "detail": f"{f['reason']}{econ}"}
-    up, f = res["upgrade"], res["future_paths"]
-    head = up["recommended"]
-    det = (f"NPV {_money(up['npv_a'])} vs {_money(up['npv_b'])} for keeping {res['current']['kw']:.0f} kW racks and "
-           f"retrofitting in year {up['year']}.")
+    d, f = res["design"], res["future"]
+    econ = "" if d["payback"] is not None else " It does not pay back within the analysis period."
     if f["active"]:
-        det += f" For the {_hz(f['horizon'])} horizon ({target_phrase(f)}): {f['best'].lower()}."
-    return {"headline": head, "detail": det}
+        return {"headline": f["best"], "detail": f"Lowest present cost over the {_hz(f['horizon'])} horizon, "
+                f"with {target_phrase(f)}.{econ}"}
+    return {"headline": "Build as designed", "detail": f"{f['reason']}{econ}"}
 
 
 def run_model(inp: dict | None = None) -> dict:
     i = merged(inp)
-    return run_greenfield(i) if is_greenfield(i) else run_fitout(i)
+    return run_greenfield(i)
 
 
 # =============================================================================== LLM payload
@@ -808,7 +579,7 @@ def key_design(dz):
 
 def summary_for_llm(res: dict) -> dict:
     i = res["inputs"]
-    base = {"project": i["project_name"], "project_type": i["project_type"], "location": i["region"],
+    base = {"project": i["project_name"], "project_type": GREENFIELD, "location": i["region"],
             "resilience": RESILIENCE[i["resilience"]], "disclaimer": DISCLAIMER,
             "warnings": res["warnings"], "recommendation": res["recommendation"],
             "benchmark_checks": [{k: (round(v, 3) if isinstance(v, float) else v) for k, v in c.items()}
@@ -828,7 +599,7 @@ def summary_for_llm(res: dict) -> dict:
                               "impact_months": f"{r['impact_low']}-{r['impact_high']}"}
                              for r in res["cx"]["risks"] if r["active"]]
     base["estimate_accuracy"] = CX.ESTIMATE_LABEL
-    cl = res["design"]["cost_lines"] if res["mode"] == "greenfield" else res["cost_lines"]
+    cl = res["design"]["cost_lines"]
     base["cost_lines"] = [{"line": r["label"], "usd": round(r["amount"]), "included": r["included"]} for r in cl["rows"]]
     base["total_capex_usd"] = round(cl["total"])
     base["total_capex_usd_per_mw_it"] = round(cl["per_mw"])
@@ -837,7 +608,7 @@ def summary_for_llm(res: dict) -> dict:
     base["legal"] = G.LEGAL
     base["commissioning"] = {"levels": [c["level"] + " " + c["name"] for c in CX.CX_LEVELS], "hard_stop": CX.HARD_STOP,
                              "load_banks": res["cx"]["load_banks"]["notes"][:2]}
-    fut = res["future"] if res["mode"] == "greenfield" else res["future_paths"]
+    fut = res["future"]
     fp = None
     if fut.get("active"):
         fp = {"horizon": fut["horizon"], "target_kw_per_rack": fut["target_kw"], "target_year": fut["year"],
@@ -846,35 +617,19 @@ def summary_for_llm(res: dict) -> dict:
                              "downtime_months": x["downtime_months"], "present_cost": round(x["pv_total"])}
                             for x in fut["paths"]],
               "best": fut["best"], "provisions": fut["provisions"]}
-    if res["mode"] == "greenfield":
-        d = res["design"]
-        return {**base, "single_build": "Greenfield is ONE new build: there is no current-vs-future comparison.",
-                "platform": d["platform"]["label"], "kw_per_rack": d["kw"], "racks": d["racks"],
-                "it_mw": round(d["it_mw"], 2), "cooling": d["cooling"],
-                "cooling_rule": D2C_NOTE if d["cooling_auto"] else "user choice (<= 45 kW/rack)",
-                "design_calculations": key_design(d["design"]),
-                "facility_usd_per_mw_it": round(d["facility_per_mw"]),
-                "it_hardware_usd": round(d["it_total"]),
-                "opex_usd_per_year": round(d["opex"]), "revenue_year1_usd": round(d["revenue"]),
-                "gpu_price_per_hr": d["gpu_price"], "npv_usd": round(d["npv"]),
-                "payback_years": None if d["payback"] is None else round(d["payback"], 1),
-                "schedule_months": {k: round(v, 1) for k, v in d["schedule"]["drivers"].items()},
-                "critical_path": d["schedule"]["critical_path"], "future_ready": fp}
-    cur, f, up = res["current"], res["future"], res["upgrade"]
-
-    def s(x):
-        return {"racks": x["racks"], "kw_per_rack": x["kw"], "cooling": x["cooling"], "it_mw": round(x["it_mw"], 2),
-                "construction_cost_like_for_like_usd": round(x["capex"]), "construction_per_mw_usd": round(x["capex_per_mw"]),
-                "opex_usd": round(x["opex"]), "revenue_usd": round(x["revenue"]),
-                "payback_years": None if x["payback"] is None else round(x["payback"], 1),
-                "design_calculations": key_design(x["design"])}
-    return {**base, "platform": res["platform"]["label"], "current": s(cur), "future_ready": s(f),
-            "retrofit_comparison": {"retrofit_year": up["year"], "retrofit_capex_usd": round(up["retrofit_capex"]),
-                                    "downtime_cost_usd": round(up["downtime_cost"]),
-                                    "penalty_vs_day_one_usd": round(up["penalty"]),
-                                    "npv_day_one_usd": round(up["npv_a"]), "npv_retrofit_usd": round(up["npv_b"]),
-                                    "engine_recommendation": up["recommended"]},
-            "future_proof_horizon": fp}
+    d = res["design"]
+    return {**base,
+            "platform": d["platform"]["label"], "kw_per_rack": d["kw"], "racks": d["racks"],
+            "it_mw": round(d["it_mw"], 2), "cooling": d["cooling"],
+            "cooling_rule": D2C_NOTE if d["cooling_auto"] else "user choice (<= 45 kW/rack)",
+            "design_calculations": key_design(d["design"]),
+            "facility_usd_per_mw_it": round(d["facility_per_mw"]),
+            "it_hardware_usd": round(d["it_total"]),
+            "opex_usd_per_year": round(d["opex"]), "revenue_year1_usd": round(d["revenue"]),
+            "gpu_price_per_hr": d["gpu_price"], "npv_usd": round(d["npv"]),
+            "payback_years": None if d["payback"] is None else round(d["payback"], 1),
+            "schedule_months": {k: round(v, 1) for k, v in d["schedule"]["drivers"].items()},
+            "critical_path": d["schedule"]["critical_path"], "future_ready": fp}
 
 
 if __name__ == "__main__":

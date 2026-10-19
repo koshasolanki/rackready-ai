@@ -30,7 +30,7 @@ ESTIMATE_LABEL = ("Early budget estimate (±30–50%), not a bid: built from per
 LEAD_TIMES = [
     ("main_tx", "Large power transformers (HV/MV, >50 MVA)", 100, 160, 128,
      "2025 industry study: power transformers average about 128 weeks (about 2.5 years); 2026 quotes 100-150+ weeks"),
-    ("sub_tx", "Substation transformers (5-50 MVA, service upgrade)", 65, 110, 88,
+    ("sub_tx", "Substation transformers (5-50 MVA)", 65, 110, 88,
      "2026 procurement surveys: substation-class transformers about 65-110 weeks"),
     ("mv_swgr_38", "MV switchgear, 38 kV class", 78, 104, 91, "2026 procurement surveys: 78-104 weeks"),
     ("mv_swgr_15", "MV switchgear, 15 kV class", 52, 80, 66, "2026 procurement surveys: 52-80 weeks"),
@@ -65,11 +65,9 @@ def overtime_factor(hours: int) -> float:
     return 40.0 / (h * OVERTIME[h])
 
 
-def auto_build_months(it_mw: float, greenfield: bool) -> float:
+def auto_build_months(it_mw: float) -> float:
     """NTP to substantial completion (including commissioning), scaled with MW. Planning assumption."""
-    if greenfield:
-        return min(max(12.0 + 12.0 * math.sqrt(max(it_mw, 0.1) / 100.0), 12.0), 40.0)
-    return min(max(8.0 + 6.0 * math.sqrt(max(it_mw, 0.1) / 100.0), 8.0), 24.0)
+    return min(max(12.0 + 12.0 * math.sqrt(max(it_mw, 0.1) / 100.0), 12.0), 40.0)
 
 
 def _wk(m):
@@ -80,15 +78,14 @@ def _mo(w):
     return w / WEEKS_PER_MONTH
 
 
-def schedule(*, it_mw: float, greenfield: bool, design_months: float, build_months: float | None,
-             months_to_power: float | None, onsite_hv: bool, d2c: bool, needs_new_service: bool = True,
-             overtime_hours: int = 40, weather: float = 0.0, congestion: float = 0.0,
+def schedule(*, it_mw: float, design_months: float, build_months: float | None,
+             months_to_power: float | None, onsite_hv: bool, d2c: bool, overtime_hours: int = 40, weather: float = 0.0, congestion: float = 0.0,
              lead_pick: str = "typ") -> dict:
     """Phase-level schedule in months from the start (month 0). lead_pick = typ | low | high lead times."""
-    B0 = float(build_months) if build_months else auto_build_months(it_mw, greenfield)
+    B0 = float(build_months) if build_months else auto_build_months(it_mw)
     ot = overtime_factor(overtime_hours)
     wx, cg = 1.0 + float(weather or 0), 1.0 + float(congestion or 0)
-    dm = float(design_months or (9 if greenfield else 4))
+    dm = float(design_months or 9)
     phases = []
 
     def add(name, track, s, d, kind="task", note=""):
@@ -96,23 +93,18 @@ def schedule(*, it_mw: float, greenfield: bool, design_months: float, build_mont
         return s + d
 
     # ---------------------------------------------------------------- pre-construction
-    if greenfield:
-        add("Site studies (Phase I ESA, geotech, survey, title, wetlands)", "Pre-construction", 0.0, 4.0,
-            note="ESA 4-6 wk, geotech 6-10 wk, survey and title 4-8 wk, wetlands 8-16 wk, run in parallel")
-        add("Utility application and agreement", "Pre-construction", 0.0, 10.0,
-            note="Application review 3-6 months plus agreement 3-9 months; firm MW and date in writing")
-    else:
-        add("Existing-conditions survey (structure, power, cooling, roof)", "Pre-construction", 0.0, 2.0)
-        if needs_new_service:
-            add("Utility service-upgrade application", "Pre-construction", 0.0, 6.0)
-    d_end = add("Design: schematic, 30%, 60%, 90%, issued for construction", "Pre-construction", 1.0 if greenfield else 0.5, dm,
+    add("Site studies (Phase I ESA, geotech, survey, title, wetlands)", "Pre-construction", 0.0, 4.0,
+        note="ESA 4-6 wk, geotech 6-10 wk, survey and title 4-8 wk, wetlands 8-16 wk, run in parallel")
+    add("Utility application and agreement", "Pre-construction", 0.0, 10.0,
+        note="Application review 3-6 months plus agreement 3-9 months; firm MW and date in writing")
+    d_end = add("Design: schematic, 30%, 60%, 90%, issued for construction", "Pre-construction", 1.0, dm,
                 note="Long-lead orders are released between about 30% and 60-80% design")
     d0 = d_end - dm
     p_end = add("Permits (building, site, generator air permit)", "Pre-construction", d0 + 0.6 * dm, 4.0,
                 note="Review typically 8-24 weeks; air permits for generators can take longer")
     gc_end = add("Contractor selection and GMP / contract", "Pre-construction", d0 + 0.3 * dm, 3.0,
                  note="8-16 weeks")
-    ntp = max(p_end, gc_end, 4.0 if greenfield else 2.0)
+    ntp = max(p_end, gc_end, 4.0)
     phases.append({"phase": "Notice to proceed (NTP)", "track": "Milestone", "start": ntp, "dur": 0.0, "end": ntp,
                    "kind": "milestone", "note": "Permit, GMP, insurance and site safety plan in place"})
 
@@ -125,19 +117,13 @@ def schedule(*, it_mw: float, greenfield: bool, design_months: float, build_mont
     def inte(share):
         return share * B * ot * cg
 
-    if greenfield:
-        add("Site work, grading, underground utilities, stormwater", "Build", ntp, ext(0.20))
-        st_s = ntp + ext(0.10)
-        add("Foundations and structure", "Build", st_s, ext(0.30))
-        dry_s = st_s + ext(0.20)
-        dry_e = add("Dry-in (roof, envelope)", "Build", dry_s, ext(0.20))
-        mep_s = dry_s + ext(0.10)
-    else:
-        add("Strip-out and make-safe", "Build", ntp, inte(0.15))
-        add("Structural upgrades (slab, supports, openings)", "Build", ntp + inte(0.05), inte(0.25))
-        mep_s = ntp + inte(0.15)
-        dry_e = mep_s
-    mep_d = inte(0.38 if greenfield else 0.55)
+    add("Site work, grading, underground utilities, stormwater", "Build", ntp, ext(0.20))
+    st_s = ntp + ext(0.10)
+    add("Foundations and structure", "Build", st_s, ext(0.30))
+    dry_s = st_s + ext(0.20)
+    dry_e = add("Dry-in (roof, envelope)", "Build", dry_s, ext(0.20))
+    mep_s = dry_s + ext(0.10)
+    mep_d = inte(0.38)
     add("MEP rough-in and equipment set", "Build", mep_s, mep_d,
         note="Top-down overhead install: supports, sprinkler, tray, busway, piping and hoses, then floor coating")
     energ_planned = max(mep_s + 0.80 * mep_d, dry_e)
@@ -146,7 +132,7 @@ def schedule(*, it_mw: float, greenfield: bool, design_months: float, build_mont
     cx_planned = energ_planned + 0.5 * energ_d
 
     # ---------------------------------------------------------------- long-lead items and need dates
-    tx = ("main_tx" if onsite_hv else "sub_tx") if (onsite_hv or (not greenfield and needs_new_service)) else None
+    tx = "main_tx" if onsite_hv else None
     keys = ([tx] if tx else []) + \
         ["mv_swgr_38" if onsite_hv else "mv_swgr_15", "unit_sub", "lv_swbd", "gens", "ups", "busway",
          "chillers", "fire", "fiber"] + (["cdus"] if d2c else [])
@@ -168,7 +154,7 @@ def schedule(*, it_mw: float, greenfield: bool, design_months: float, build_mont
     # pass 1: planned need dates -> how far each item would slip if the RFQ went out today (month 0)
     n0 = needs(energ_planned, cx_planned, mep_s)
     slips = {k: max(0.0, _mo(chain(k)[0]) - n0[k]) for k in keys}
-    power_m = float(months_to_power) if (greenfield and months_to_power) else 0.0
+    power_m = float(months_to_power) if months_to_power else 0.0
     slip_power = max([slips[k] for k in keys if group[k] == "power"] or [0.0])
     slip_cool = max([slips[k] for k in keys if group[k] == "cooling"] or [0.0])
     cands = {"Design, permits and construction (planned)": energ_planned,
@@ -506,9 +492,8 @@ CHECKLISTS = {
 }
 
 # --------------------------------------------------------------------------- risks
-def risk_register(*, greenfield: bool, kw: float, d2c: bool, it_mw: float, months_to_power: float | None,
-                  items: list, platform_status: str = "shipping", horizon_active: bool = False,
-                  needs_new_service: bool = True) -> list[dict]:
+def risk_register(*, kw: float, d2c: bool, it_mw: float, months_to_power: float | None,
+                  items: list, platform_status: str = "shipping", horizon_active: bool = False) -> list[dict]:
     late = [x["item"] for x in items if x["flag"].startswith(("Critical", "Order now"))]
     pre = [x["item"] for x in items if x["flag"] == "Order before NTP"]
     R = []
@@ -519,18 +504,17 @@ def risk_register(*, greenfield: bool, kw: float, d2c: bool, it_mw: float, month
 
     add("Utility interconnection", "No signed agreement with firm MW and date by Gate 1; study results delayed",
         "Early utility load study; phased energization; flexible (curtailable) load agreement; on-site bridging power",
-        "Owner", "Pre-construction", 6, 24, greenfield or needs_new_service,
-        "Greenfield or new service" if greenfield or needs_new_service else "Existing service is enough")
+        "Owner", "Pre-construction", 6, 24, True, "New service for a new site")
     add("Long-lead equipment", "Order-by month before NTP or less than 8 weeks of float",
         "Early equipment reservations with slot deposits before design is complete; frame agreements; factory inspection",
         "Owner / contractor", "Pre-construction to build", 3, 9, True,
         ("Late now: " + ", ".join(late)) if late else ("Order before NTP: " + ", ".join(pre)) if pre else "All orders after NTP")
     add("Permits and environmental (air, stormwater, wetlands)", "Generator air permit or wetland delineation not filed by 30% design",
         "Early environmental review at site selection; pre-application meetings; design to the permit limits",
-        "Owner / designer", "Pre-construction", 3, 6, greenfield, "Greenfield site")
+        "Owner / designer", "Pre-construction", 3, 6, True, "Greenfield site")
     add("Geotechnical and contamination", "Unexpected rock, soft soil or contamination in the Phase I/II findings",
         "Complete geotech and ESA before design freeze; carry a ground allowance in the schedule",
-        "Owner", "Pre-construction / site work", 1, 4, greenfield, "Greenfield site")
+        "Owner", "Pre-construction / site work", 1, 4, True, "Greenfield site")
     add("Labor availability", "Electricians, pipefitters or commissioning technicians short in the look-ahead",
         "Labor agreement and workforce plan; modular prefabrication; realistic overtime (productivity falls above about 50 h/week)",
         "Contractor", "Build", 2, 6, True, f"{it_mw:,.0f} MW build")
@@ -553,7 +537,7 @@ def risk_register(*, greenfield: bool, kw: float, d2c: bool, it_mw: float, month
         "Readiness review before L4 and L5; book load banks 4-8 weeks ahead; protect the IST window",
         "CxA / contractor", "Commissioning", 1, 3, True, "All projects")
     add("Weather", "Exterior work in the wet or freezing season; lift wind limits", "Season-aware sequencing; "
-        "winter protection; dry-in before electrical gear", "Contractor", "Build", 1, 3, greenfield, "Greenfield site")
+        "winter protection; dry-in before electrical gear", "Contractor", "Build", 1, 3, True, "Greenfield site")
     add("OT cybersecurity", "BMS/EPMS on flat networks; default passwords; remote access not controlled",
         "IEC 62443 zones and conduits; vendor access control; testing before handover", "Owner / controls contractor",
         "Design to operations", 0, 2, True, "All projects")
@@ -572,24 +556,24 @@ def risk_register(*, greenfield: bool, kw: float, d2c: bool, it_mw: float, month
         "Roadmap platform or future horizon")
     add("Community opposition", "Organised objections at zoning hearings (noise, water, power bills, traffic, views)",
         "Engage the community before filing; community benefit agreement; design to noise and water limits; "
-        "publish the water and power plan", "Owner", "Pre-construction", 3, 18, greenfield, "New site needs zoning approval")
+        "publish the water and power plan", "Owner", "Pre-construction", 3, 18, True, "New site needs zoning approval")
     add("Water supply and wastewater", "Utility cannot commit water or discharge capacity; drought restrictions",
         "Dry or closed-loop cooling (little or no evaporative water); reclaimed water; on-site treatment",
-        "Owner / designer", "Pre-construction", 2, 12, greenfield, "New site needs water and discharge permits")
+        "Owner / designer", "Pre-construction", 2, 12, True, "New site needs water and discharge permits")
     add("Transmission constraints", "Utility study shows network upgrades before full MW can be served",
         "Phased energization (MW in steps as upgrades finish); flexible-load agreement; site near existing capacity",
-        "Owner / utility", "Pre-construction to energization", 6, 36, greenfield and it_mw >= 50,
+        "Owner / utility", "Pre-construction to energization", 6, 36, it_mw >= 50,
         "50 MW or more usually needs transmission-level service")
     add("Gas supply for on-site power", "No firm gas pipeline capacity for bridging or on-site generation",
         "Confirm pipeline capacity and lateral timing before committing to gas; consider batteries or fuel cells",
-        "Owner", "Pre-construction", 3, 18, bool(greenfield and (months_to_power or 0) > 36),
+        "Owner", "Pre-construction", 3, 18, bool((months_to_power or 0) > 36),
         "Bridging power is likely when the utility wait is above 36 months")
     add("Financing", "Funding not closed before long-lead deposits or NTP; lender requires firm power",
         "Phase the capital with the energization steps; secure the power agreement first; early lender engagement",
-        "Owner", "Pre-construction", 2, 9, greenfield, "Large new build")
+        "Owner", "Pre-construction", 2, 9, True, "Large new build")
     add("Bridging power availability", "Utility date later than the IT need; turbines or engines not available",
         "Plan for multi-year turbine backlogs; consider engines, fuel cells or batteries; verify permits",
-        "Owner", "Pre-construction", 3, 12, bool(greenfield and (months_to_power or 0) > 36),
+        "Owner", "Pre-construction", 3, 12, bool((months_to_power or 0) > 36),
         "Utility wait above 36 months")
     return R
 
@@ -752,12 +736,11 @@ def tables(cx: dict) -> dict:
     }
 
 
-def plan(*, it_mw, racks, kw, cooling_d2c, liquid, onsite_hv, greenfield, i, platform_status="shipping",
-         horizon_active=False, needs_new_service=True, gen_mw=3.0) -> dict:
-    args = dict(it_mw=it_mw, greenfield=greenfield, design_months=i.get("design_months") if greenfield else None,
-                build_months=i.get("construction_months") if greenfield else i.get("fitout_build_months"),
-                months_to_power=i.get("months_to_power") if greenfield else None, onsite_hv=onsite_hv, d2c=cooling_d2c,
-                needs_new_service=needs_new_service, overtime_hours=int(i.get("overtime_hours") or 40),
+def plan(*, it_mw, racks, kw, cooling_d2c, liquid, onsite_hv, i, platform_status="shipping",
+         horizon_active=False, gen_mw=3.0) -> dict:
+    args = dict(it_mw=it_mw, design_months=i.get("design_months"), build_months=i.get("construction_months"),
+                months_to_power=i.get("months_to_power"), onsite_hv=onsite_hv, d2c=cooling_d2c,
+                overtime_hours=int(i.get("overtime_hours") or 40),
                 weather=float(i.get("weather_factor") or 0), congestion=float(i.get("congestion_factor") or 0))
     sch = schedule(**args)
     # Range: shortest published lead times and no weather allowance, to the longest lead times plus 10% more
@@ -767,10 +750,8 @@ def plan(*, it_mw, racks, kw, cooling_d2c, liquid, onsite_hv, greenfield, i, pla
     sch["sc_low"], sch["sc_high"] = min(lo, sch["sc"]), max(hi, sch["sc"])
     sch["range_text"] = range_text(sch["sc_low"], sch["sc_high"])
     lb = load_banks(it_mw=it_mw, liquid=liquid, d2c=cooling_d2c, gen_mw=gen_mw)
-    risks = risk_register(greenfield=greenfield, kw=kw, d2c=cooling_d2c, it_mw=it_mw,
-                          months_to_power=i.get("months_to_power") if greenfield else None, items=sch["items"],
-                          platform_status=platform_status, horizon_active=horizon_active,
-                          needs_new_service=needs_new_service)
+    risks = risk_register(kw=kw, d2c=cooling_d2c, it_mw=it_mw, months_to_power=i.get("months_to_power"),
+                          items=sch["items"], platform_status=platform_status, horizon_active=horizon_active)
     out = {"schedule": sch, "load_banks": lb, "risks": risks, "estimate_label": ESTIMATE_LABEL}
     out["tables"] = tables(out)
     return out

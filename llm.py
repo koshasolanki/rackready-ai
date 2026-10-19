@@ -53,10 +53,7 @@ Domain you apply:
 - End with: not engineering, legal or financial advice; a licensed engineer and the AHJ must review.
 
 Rules:
-- If project_type starts with "Greenfield" there is ONE new build: never mention a current build or a
-  retrofit of it. Name section 3 "## Design & future-ready recommendation".
-- For an existing building fit-out, compare the current racks with the future-ready fit-out and the
-  retrofit-later option. Name section 3 "## Upgrade path recommendation".
+- The project is ONE new greenfield build: never describe it as an upgrade of an earlier building.
 - When future_ready / future_proof_horizon is present, explain the three paths (retrofit later,
   provisions now, full future build) and why the engine's lowest present cost wins; list the key provisions.
   The horizon is the planning window; target_year counts years after ready for IT (say "a 600 kW/rack target
@@ -69,7 +66,7 @@ Rules:
 Write exactly these sections, concise (about 450-650 words in total):
 ## Executive summary
 ## Assumptions commentary
-## Upgrade path recommendation   (greenfield: ## Design & future-ready recommendation)
+## Design & future-ready recommendation
 ## Key risks
 ## Recommendations & next steps
 """
@@ -206,23 +203,13 @@ def fallback_narrative(res: dict) -> str:
     v = R.main_design(res)["v"]
     f = R.horizon(res)
     rec = res["recommendation"]
-    gf = res["mode"] == "greenfield"
-    x = res["design"] if gf else res["future"]
+    x = res["design"]
     pay = f"about {h['payback']:.1f} years" if h["payback"] is not None else "not reached in the analysis period"
     out = ["## Executive summary"]
-    if gf:
-        out.append(f"{i['project_name']}: one new build in {i['region']}, {h['racks']:,} {h['platform']} racks at "
-                   f"{h['kw']:,.0f} kW/rack ({h['it_mw']:,.1f} MW IT), {h['cooling'][0].lower() + h['cooling'][1:]} "
-                   f"cooling. Total {R.money(h['total'])} ({R.money(h['per_mw'])}/MW IT) for the ticked cost lines; "
-                   f"{R.money(h['total_all'])} with every line ticked.")
-    else:
-        cur, up = res["current"], res["upgrade"]
-        out.append(f"{i['project_name']}: {cur['racks']:,} racks today at {cur['kw']:.0f} kW/rack vs a future-ready "
-                   f"fit-out for {h['platform']} at {x['kw']:.0f} kW/rack. Total {R.money(h['total'])} "
-                   f"({R.money(h['per_mw'])}/MW IT) for the ticked cost lines; {R.money(h['total_all'])} with every line "
-                   f"ticked. Like-for-like construction: {R.money(x['construction_cost'])} future-ready vs "
-                   f"{R.money(cur['capex'])} for today's racks; today's racks plus a year-{up['year']} retrofit cost "
-                   f"{R.money(up['path_b_total'])} including {up['downtime_months']} months of downtime.")
+    out.append(f"{i['project_name']}: one new build in {i['region']}, {h['racks']:,} {h['platform']} racks at "
+               f"{h['kw']:,.0f} kW/rack ({h['it_mw']:,.1f} MW IT), {h['cooling'][0].lower() + h['cooling'][1:]} "
+               f"cooling. Total {R.money(h['total'])} ({R.money(h['per_mw'])}/MW IT) for the ticked cost lines; "
+               f"{R.money(h['total_all'])} with every line ticked.")
     if h["excluded"]:
         out.append("Not in the total: " + ", ".join(h["excluded"]) + ".")
     out.append(f"Ready for IT {h['rfs_text']}. Payback including IT: {pay}.")
@@ -238,11 +225,7 @@ def fallback_narrative(res: dict) -> str:
     out.append("All benchmark checks are within their public ranges." if not bad else
                "Outside benchmark range: " + "; ".join(f"{c['check']} = {c['value']:,.2f}" for c in bad) + ".")
 
-    out.append("## Design & future-ready recommendation" if gf else "## Upgrade path recommendation")
-    if not gf:
-        up = res["upgrade"]
-        out.append(f"Fit out future-ready now: NPV {R.money(up['npv_a'])}. Keep today's racks and retrofit later: NPV "
-                   f"{R.money(up['npv_b'])}. Recommended: **{up['recommended']}**.")
+    out.append("## Design & future-ready recommendation")
     if f.get("active"):
         out.append(f"Horizon {f['horizon']}: {E.target_phrase(f)}. Present cost: " +
                    "; ".join(f"{p['path'].lower()} {R.money(p['pv_total'])}" for p in f["paths"]) +

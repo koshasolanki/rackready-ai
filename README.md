@@ -8,8 +8,8 @@
 
 ## What it does
 
-Pick a project type (greenfield or existing-building fit-out), a size, a GPU platform, a location, a redundancy
-level and a future-proof horizon. In seconds you get:
+For a new greenfield AI data center, pick a size, a GPU platform, a location, a redundancy level and a
+future-proof horizon. In seconds you get:
 
 | Tab | What you get |
 |---|---|
@@ -31,7 +31,6 @@ full Markdown report and CSV tables.
 |---|---|---|---|---|---|---|---|
 | 100 MW AI campus | GB300 NVL72, 741 racks, D2C, PUE 1.20 | $2.33B | $23.3M | $6.08B | 3.1 years | about 41–51 months from start | Build today + future-ready provisions |
 | 10 MW edge AI hall | H200 HGX, 239 racks, rear-door hybrid, PUE 1.35 | $188.1M | $18.8M | $561.6M | 6.7 years | about 26–38 months from start | Build today + future-ready provisions |
-| Existing-hall fit-out | 200 racks, 15 kW air to GB300 D2C | $358.2M | $13.3M | $1.37B | 2.5 years | about 33–48 months from start | Fit out future-ready now |
 
 ## Try it
 
@@ -82,13 +81,12 @@ Never commit `.streamlit/secrets.toml`; it is in `.gitignore`.
   split into 22 construction divisions, prices it. Redundancy is priced from the designed generator, UPS and
   transformer counts, then contingency, location, owner costs and escalation are applied. The divisions regroup
   exactly into the 13 cost lines.
-- **Greenfield** is one new build from scratch. **Fit-out** compares today's racks with a future-ready fit-out of the
-  same hall and with retrofitting later.
+- **Greenfield** is one new build from scratch, sized by IT MW or by racks.
 - **Liquid above 45 kW/rack.** Air tops out near 30 kW/rack and rear-door coolers near 45 kW; above that every design
   uses direct-to-chip liquid cooling automatically.
 - **Future-ready.** The hall is designed again at the target density; three paths are compared on present cost
   (escalated, discounted and weighted by the probability the target arrives).
-- **Schedule.** Build months scale with MW (greenfield 12 + 12 x sqrt(MW/100), fit-out 8 + 6 x sqrt(MW/100)); long
+- **Schedule.** Build months scale with MW (12 + 12 x sqrt(MW/100), 12-40 months); long
   leads are reverse-scheduled from when each item is needed on site. Timing is in months from start, never calendar
   dates.
 
@@ -135,7 +133,7 @@ rackready_ai/
 ├── docs/COMPLIANCE.md    # hackathon rules, licenses, privacy, accessibility, security
 ├── TERMS.md          # terms of use (same text as in the app)
 ├── SAMPLE_INPUTS.md  # demo scenarios and expected results
-└── tests/            # pytest: physics, ranges, fuzz over input combinations, AppTest for every mode
+└── tests/            # pytest: physics, ranges, fuzz over input combinations, AppTest for every preset and platform
 ```
 
 ## Verification
@@ -143,8 +141,8 @@ rackready_ai/
 - Every number, its range and its public source (or an "assumption" label): [docs/VERIFICATION.md](docs/VERIFICATION.md).
 - Tests (`pip install pytest && python -m pytest -q tests`) check the physics (MVA >= MW/PF, tons = kW/3.517, Q = P/(rho cp dT),
   I = P/(sqrt3 V PF)), the public ranges, the D2C switch at 45 kW, a 600 kW case, hand-worked code examples
-  (NFPA 13/20/2001, IPC, rational method, MV current, busway loading, order timing), the app in every mode, and a
-  **fuzz test** over every project type x platform x redundancy x horizon plus random edge inputs: no errors, no
+  (NFPA 13/20/2001, IPC, rational method, MV current, busway loading, order timing), the app for every preset and platform, and a
+  **fuzz test** over every platform x redundancy x horizon plus random edge inputs: no errors, no
   NaN, no negative cost lines, ticked lines always equal the total and the one-page PDF stays one page.
 
 ### Hand-checked design calculations (default 100 MW GB300 NVL72 campus, N+1)

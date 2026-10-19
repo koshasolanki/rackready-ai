@@ -8,8 +8,8 @@ facility, open-shop labour, N+1 block redundancy, including the general contract
 and a 4% construction contingency. It EXCLUDES land, the utility-side interconnection, IT hardware
 (servers, GPUs, network fabric), owner costs, financing, taxes and escalation after 2026. The app adds
 those separately. Public cross-checks are in docs/VERIFICATION.md:
-  * 2026 global data center outlook (real-estate advisor): $11.3M/MW shell and core (air-cooled, excludes tech fit-out);
-    liquid cooling adds about 10%; AI tenant fit-out can add up to $25M/MW.
+  * 2026 global data center outlook (real-estate advisor): $11.3M/MW shell and core (air-cooled, excludes technical interiors);
+    liquid cooling adds about 10%; AI tenant interiors can add up to $25M/MW.
   * 2026 development cost guide (real-estate advisor): $17.6M/MW all-in greenfield (US/Canada,
     excluding chips/GPUs).
   * Data centre construction cost index 2025-26 (cost consultancy): AI/liquid-cooled builds cost
@@ -34,7 +34,7 @@ DIVISIONS = ["01 General conditions, design & commissioning", "02 Existing condi
 GROUPS = {
     "Electrical power (Div 26)": ["26"],
     "Cooling: HVAC & liquid (Div 23)": ["23"],
-    "Structure, shell & fit-out (Div 02-14)": ["02", "03", "04", "05", "06", "07", "08", "09", "10-12", "13", "14"],
+    "Structure, shell & interiors (Div 02-14)": ["02", "03", "04", "05", "06", "07", "08", "09", "10-12", "13", "14"],
     "Site works & utilities (Div 31-33)": ["31", "32", "33"],
     "Plumbing & fuel (Div 22)": ["22"],
     "Fire, security & controls (Div 21, 25, 28)": ["21", "25", "28"],
@@ -154,7 +154,7 @@ CUSTOM = "Custom density"
 DEFAULT_PLATFORM = "GB300 NVL72"
 
 # Air-cooled anchor for densities below the GPU ladder (enterprise/cloud halls):
-# 2026 market shell & core $11.3M/MW (air, excl. fit-out) + light fit-out -> $12.0M/MW at 15 kW/rack.
+# 2026 market shell & core $11.3M/MW (air, excl. interiors) + light interiors -> $12.0M/MW at 15 kW/rack.
 AIR_ANCHOR_KW = 15.0
 AIR_ANCHOR_RATE = 12_000_000
 

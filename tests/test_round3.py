@@ -43,9 +43,8 @@ def test_ticked_lines_always_sum_to_total(pre):
         h = R.headline(res)
         assert h["total"] == pytest.approx(want, abs=1e-6)
         assert h["per_mw"] == pytest.approx(want / h["it_mw"], rel=1e-12)
-        if res["mode"] == "greenfield":
-            d = res["design"]
-            assert d["capex"] == pytest.approx(want) and abs(sum(d["lines"].values()) - d["capex"]) < 1
+        d = res["design"]
+        assert d["capex"] == pytest.approx(want) and abs(sum(d["lines"].values()) - d["capex"]) < 1
 
 
 @pytest.mark.parametrize("pre", PRESETS)
@@ -64,7 +63,7 @@ def test_every_output_uses_the_checked_total(pre):
 
 
 def test_greenfield_carve_adds_back_to_facility():
-    for pre in PRESETS[:2]:
+    for pre in PRESETS:
         res = E.run_model(E.PRESETS[pre])
         d = res["design"]
         cv = d["cost_lines"]["carve"]
@@ -75,15 +74,6 @@ def test_greenfield_carve_adds_back_to_facility():
         # default total = previous facility-based total + new lines (spares; racks only for HGX-type platforms)
         amt = {r["key"]: r["amount"] for r in d["cost_lines"]["rows"]}
         assert d["capex"] == pytest.approx(d["construction_basis"] + amt["spares"] + cv["racks_new"], rel=1e-12)
-
-
-def test_fitout_regroup_adds_back_to_construction():
-    res = E.run_model(E.PRESETS[PRESETS[2]])
-    f = res["future"]
-    amt = {r["key"]: r["amount"] for r in res["cost_lines"]["rows"]}
-    regrouped = sum(amt[k] for k in ("facility", "fiber", "racks", "security", "design", "commissioning", "contingency"))
-    assert regrouped == pytest.approx(f["construction_cost"], rel=1e-9)
-    assert amt["land"] == 0
 
 
 @pytest.mark.parametrize("name", list(PL.PLATFORMS))
@@ -146,8 +136,8 @@ def test_official_event_name():
 
 def test_preset_totals_pinned():
     want = {"100 MW AI campus (greenfield, GB300 NVL72)": (2328.2, 6076.2),
-            "10 MW edge AI hall (greenfield, H200 HGX)": (188.1, 561.6),
-            "Existing-hall fit-out (200 racks, 15 kW -> GB300)": (358.2, 1369.9)}
+            "10 MW edge AI hall (greenfield, H200 HGX)": (188.1, 561.6)}
+    assert set(want) == set(E.PRESETS)
     for name, (total, total_all) in want.items():
         h = R.headline(E.run_model(E.PRESETS[name]))
         assert round(h["total"] / 1e6, 1) == total and round(h["total_all"] / 1e6, 1) == total_all, name
@@ -159,26 +149,21 @@ def test_units_and_design_line():
 
 def test_target_wording_every_horizon():
     arrive = {"5 years": (230, 3), "10 years": (600, 5), "15 years": (1000, 8)}
-    for ptype in E.PROJECT_TYPES:
-        for hz, (kw, yr) in arrive.items():
-            r = E.run_model({"project_type": ptype, "horizon": hz})
-            phrase = f"a {kw:,} kW/rack target installed in year {yr} after ready for IT"
-            outputs = [r["recommendation"]["detail"], R.markdown_report(r), llm.fallback_narrative(r)]
-            if ptype == E.GREENFIELD:
-                assert r["recommendation"]["detail"].startswith(f"Lowest present cost over the {hz[:-6]}-year horizon")
-            for text in outputs:
-                assert phrase in text.replace("A " + phrase[2:], phrase), (ptype, hz)
-                assert not re.search(r"kW/rack by year", text)
-            assert E.summary_for_llm(r)["future_proof_horizon" if ptype == E.FITOUT else "future_ready"][
-                "target_in_words"] == phrase
+    for hz, (kw, yr) in arrive.items():
+        r = E.run_model({"horizon": hz})
+        phrase = f"a {kw:,} kW/rack target installed in year {yr} after ready for IT"
+        outputs = [r["recommendation"]["detail"], R.markdown_report(r), llm.fallback_narrative(r)]
+        assert r["recommendation"]["detail"].startswith(f"Lowest present cost over the {hz[:-6]}-year horizon")
+        for text in outputs:
+            assert phrase in text.replace("A " + phrase[2:], phrase), hz
+            assert not re.search(r"kW/rack by year", text)
+        assert E.summary_for_llm(r)["future_ready"]["target_in_words"] == phrase
 
 
 def test_roadmap_day_one_density():
     assert "40-60 kW today" not in R.ROADMAP_TEXT and "typical enterprise" in R.ROADMAP_TEXT
     for name, kw_text in [("100 MW AI campus (greenfield, GB300 NVL72)", "GB300 NVL72 about 135 kW/rack"),
-                          ("10 MW edge AI hall (greenfield, H200 HGX)", "H200 HGX about 42 kW/rack"),
-                          ("Existing-hall fit-out (200 racks, 15 kW -> GB300)",
-                           "GB300 NVL72 about 135 kW/rack (existing racks 15 kW/rack)")]:
+                          ("10 MW edge AI hall (greenfield, H200 HGX)", "H200 HGX about 42 kW/rack")]:
         assert R.day_one_density(E.run_model(E.PRESETS[name])) == kw_text
     r = E.run_model({"platform": PL.CUSTOM, "custom_kw": 80})
     assert R.day_one_density(r) == "Custom density about 80 kW/rack"
