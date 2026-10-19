@@ -400,6 +400,7 @@ with st.expander("📘 How it works"):
                        + " · ".join(f"{a} ${b:g}" for a, b in G.CAPEX_SPLIT)))
     st.caption(esc_md(G.CAPEX_NOTE))
 with st.expander(f"📄 {G.TERMS_TITLE}"):
+    st.caption(esc_md(G.TERMS_INTRO))
     for head, text in G.TERMS:
         st.markdown(esc_md(f"**{head}.** {text}"))
 st.caption(esc_md(f"{E.DISCLAIMER} {G.LEGAL} See {G.TERMS_TITLE} above."))

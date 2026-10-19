@@ -17,6 +17,8 @@ def test_terms_cover_required_points():
     for phrase in ("as is", "without warranty", "not engineering, legal, financial", "licensed professional engineer",
                    "authority having jurisdiction", "±30–50%", "not liable", "not saved", "only if an api key",
                    "no analytics", "trademarks", "no affiliation", "alphabetically", "reference only", "mit license",
-                   "governed by"):
+                   "governed by", "harmless", "third-party ai model", "can be wrong", "may change",
+                   "last updated: october 2026"):
         assert phrase in t, phrase
+    assert len(t.split()) <= 320                                  # readable in about a minute
     assert "inc." not in t and "llc" not in t and "ltd" not in t  # no invented company entity

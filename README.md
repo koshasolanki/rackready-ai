@@ -133,7 +133,7 @@ rackready_ai/
 ├── docs/COMPLIANCE.md    # hackathon rules, licenses, privacy, accessibility, security
 ├── TERMS.md          # terms of use (same text as in the app)
 ├── SAMPLE_INPUTS.md  # demo scenarios and expected results
-└── tests/            # pytest: physics, ranges, fuzz over input combinations, AppTest for every mode
+└── tests/            # pytest: physics, ranges, fuzz over input combinations, AppTest for every preset and platform
 ```
 
 ## Verification
@@ -141,7 +141,7 @@ rackready_ai/
 - Every number, its range and its public source (or an "assumption" label): [docs/VERIFICATION.md](docs/VERIFICATION.md).
 - Tests (`pip install pytest && python -m pytest -q tests`) check the physics (MVA >= MW/PF, tons = kW/3.517, Q = P/(rho cp dT),
   I = P/(sqrt3 V PF)), the public ranges, the D2C switch at 45 kW, a 600 kW case, hand-worked code examples
-  (NFPA 13/20/2001, IPC, rational method, MV current, busway loading, order timing), the app in every mode, and a
+  (NFPA 13/20/2001, IPC, rational method, MV current, busway loading, order timing), the app for every preset and platform, and a
   **fuzz test** over every project type x platform x redundancy x horizon plus random edge inputs: no errors, no
   NaN, no negative cost lines, ticked lines always equal the total and the one-page PDF stays one page.
 
@@ -187,8 +187,9 @@ and citation policy: [docs/COMPLIANCE.md](docs/COMPLIANCE.md).
 
 [TERMS.md](TERMS.md), also in the app under **📄 Terms of use**. In short: provided as is; an early budget estimate
 (±30–50%), not a bid; not engineering, legal or financial advice; a licensed professional engineer and the authority
-having jurisdiction (AHJ) must review any design. NVIDIA, Nebius, product and supplier names are trademarks of
-their owners; RackReady AI is not affiliated with or endorsed by them.
+having jurisdiction (AHJ) must review any design; limited liability; inputs go to the AI provider only to write the
+narrative (nothing is stored, no analytics) and the AI text can be wrong. NVIDIA, Nebius, product and supplier names
+are trademarks of their owners; RackReady AI is not affiliated with or endorsed by them.
 
 ## License
 

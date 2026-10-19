@@ -100,10 +100,11 @@ for p in 'sk-[A-Za-z0-9]{20,}' 'ghp_[A-Za-z0-9]{20,}' 'AKIA[0-9A-Z]{16}' 'BEGIN 
 
 ## 9. Terms of use
 
-`TERMS.md` (also in the app under **📄 Terms of use**, linked from the footer): as-is with no warranty; not
-engineering, legal or financial advice; licensed engineer and AHJ review; estimates have a range; no liability;
-data handling; trademarks; supplier list for reference only; MIT license; governing law. A test keeps TERMS.md
-identical to the in-app text.
+`TERMS.md` (also in the app under **📄 Terms of use**, linked from the footer; last updated October 2026): as-is
+with no warranty; not engineering, legal or financial advice; licensed engineer and AHJ review; estimates have a
+range; limitation of liability; your responsibility (hold harmless); data handling; AI narrative may be wrong;
+trademarks; supplier list for reference only; MIT license; governing law; changes. A test keeps TERMS.md identical
+to the in-app text and under about a minute of reading.
 
 ## Open items for the submitter
 
