@@ -116,7 +116,7 @@ def test_power_prices_and_lead_times():
     us = [v["power"] for k, v in E.REGIONS.items() if k.startswith("US")]
     assert all(0.06 <= p <= 0.12 for p in us)
     assert 104 <= E.TRANSFORMER_WEEKS <= 156               # 1-2+ years
-    gen = next(x for x in E.LONG_LEAD if x[0].startswith("Standby generators"))
+    gen = next(x for x in E.LONG_LEAD if x[0].startswith("Standby diesel generators"))
     assert 52 <= gen[1] <= gen[2] <= 110                     # about 1.5-2 years
 
 

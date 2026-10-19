@@ -16,10 +16,11 @@ import streamlit as st
 
 # Force-reload local modules so a hot redeploy never mixes old and new code.
 import importlib as _il
-import platforms as _pl, design as _ds, engine as _engine, report as _rep, llm as _llm, ui_common as _uic, ui_views as _uiv
-for _m in (_pl, _ds, _engine, _rep, _llm, _uic, _uiv):
+import platforms as _pl, design as _ds, buildcx as _cx, engine as _engine, report as _rep, llm as _llm, ui_common as _uic, ui_views as _uiv
+for _m in (_pl, _ds, _cx, _engine, _rep, _llm, _uic, _uiv):
     _il.reload(_m)
 
+import buildcx as CX
 import engine as E
 import platforms as PL
 import report as R
@@ -83,7 +84,7 @@ def _load_preset(name: str):
     ss["w_cur_cool"] = i["current_cooling"]
     ss["w_mtp"] = int(i["months_to_power"])
     ss["w_dm"] = int(i["design_months"])
-    ss["w_cm"] = int(i["construction_months"])
+    ss["w_cm"] = int(i["construction_months"] or 0)
 
 
 def _on_preset():
@@ -147,8 +148,8 @@ with st.sidebar:
                                     help="Sets the construction cost factor, land price and power price defaults.")
     inputs["resilience"] = st.selectbox("Redundancy (tier)", list(E.RESILIENCE), key="w_res",
                                         format_func=lambda k: E.RESILIENCE[k],
-                                        help="Generators, UPS and power paths. Tier wording is indicative "
-                                             "(Uptime Institute style), not a certification.")
+                                        help="Generators, UPS and power paths. " + CX.GLOSSARY["N, N+1, 2N"] +
+                                             " Tier wording is indicative, not a certification.")
     inputs["horizon"] = st.selectbox("Future-proof horizon", list(E.HORIZONS), key="w_horizon",
                                      format_func=lambda h: h if h == "Today only" else
                                      f"{h} · {E.HORIZONS[h]:,.0f} kW/rack",
@@ -205,8 +206,26 @@ with st.sidebar:
             c1, c2 = st.columns(2)
             inputs["design_months"] = int(c1.number_input("Design months", 2, 36, key="w_dm",
                                                           help="Design and permits."))
-            inputs["construction_months"] = int(c2.number_input("Build months", 6, 60, key="w_cm",
-                                                                help="Construction duration."))
+            cm = int(c2.number_input("Build months (0 = auto)", 0, 60, key="w_cm",
+                                     help="Construction from notice to proceed to energization start. "
+                                          "0 = scales with MW: 12 + 12 x sqrt(MW/100), 12-40 months."))
+            inputs["construction_months"] = cm or None
+        else:
+            fb = int(st.number_input("Fit-out build months (0 = auto)", 0, 36, 0,
+                                     help="0 = scales with MW: 8 + 6 x sqrt(MW/100), 8-24 months."))
+            inputs["fitout_build_months"] = fb or None
+        st.markdown("**Schedule factors**")
+        inputs["project_start"] = st.date_input("Project start (go decision)", help="Month 0 for order-by dates.")
+        c1, c2 = st.columns(2)
+        inputs["overtime_hours"] = int(c1.selectbox("Work week (hours)", [40, 50, 60, 70], 0, key="w_ot",
+                                                    help="Overtime shortens field work but loses productivity "
+                                                         "(about 0.97 at 50 h, 0.88 at 60 h, 0.80 at 70 h). "
+                                                         "Commissioning does not compress."))
+        inputs["weather_factor"] = float(c2.slider("Weather allowance", 0.0, 0.30, 0.05, 0.01,
+                                                   help="Extra time on exterior work (site, structure, dry-in)."))
+        inputs["congestion_factor"] = float(st.slider("Congestion / stacking of trades", 0.0, 0.30, 0.0, 0.01,
+                                                      help="Extra time on interior MEP, energization and "
+                                                           "commissioning when trades share space."))
         inputs["escalation"] = st.slider("Escalation per year", 0.0, 0.12, D["escalation"], 0.005,
                                          help="Construction cost inflation to the mid-point of construction.")
         st.markdown("**Engineering**")
@@ -349,7 +368,7 @@ d3.download_button("⬇ Tables (CSV zip)", zbuf.getvalue(), file_name="rackready
 
 # ----------------------------------------------------------------- tabs
 tabs = st.tabs(["💰 Costs", "🔮 Future-ready", "📐 Design calculations", "📈 Operations & ROI",
-                "🗓️ Schedule & risks", "📚 Assumptions & sources"])
+                "🗓️ Schedule & risks", "🏗️ Build & commission", "📚 Assumptions & sources"])
 with tabs[0]:
     V.tab_costs(res)
 with tabs[1]:
@@ -361,6 +380,8 @@ with tabs[3]:
 with tabs[4]:
     V.tab_schedule(res)
 with tabs[5]:
+    V.tab_build(res)
+with tabs[6]:
     V.tab_assumptions(res)
 
 with st.expander("📘 How it works"):

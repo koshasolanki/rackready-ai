@@ -5,6 +5,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+import buildcx as CX
 import engine as E
 import platforms as PL
 import report as R
@@ -58,9 +59,10 @@ def summary(res):
     metric(c[0], h["label_total"], R.money(h["total"]), f"+ {R.money(h['it_total'])} IT hardware")
     metric(c[1], h["label_per_mw"], f"{R.money(h['per_mw'])}/MW", f"{h['it_mw']:,.1f} MW IT")
     metric(c[2], "Payback (incl. IT)", R.yrs(h["payback"]), f"NPV {R.money(h['npv'])}")
-    metric(c[3], "Ready for service", f"~{h['rfs']:.0f} months", "critical path in Schedule tab")
+    metric(c[3], "Ready for service", f"~{h['rfs']:.0f} months", "substantial completion, see Schedule tab")
     _sc(f"**Recommendation: {rec['headline']}.** {rec['detail']}")
     _cp("Key design: " + R.key_design_line(res))
+    _cp(CX.ESTIMATE_LABEL)
 
 
 # ------------------------------------------------------------------ costs
@@ -141,7 +143,7 @@ def tab_future(res):
     _df(R.compare_table(res), num_cols=("Day one", "Future target"))
     _mk("**Provisions to build in now**")
     for p in f["provisions"]:
-        _mk(f"- **{p['provision']}**: {p['what']} _{p['when']}._")
+        _mk(f"- **{p['provision']}**: {p['what']} _{p['when']}._ Why: {p['why']}")
     with st.expander("Upgrade cost by item and pre-install share"):
         _df(R.future_rows_table(res), pct_cols=("Pre-install share",))
 
@@ -189,6 +191,11 @@ def tab_ops(res):
         fig.add_trace(go.Scatter(y=pd.Series(x["cash_flows"]).cumsum() / M, name=name, line_color=colr))
     fig.update_xaxes(title="Year")
     st.plotly_chart(dark(fig, 300, title="Cumulative cash flow incl. IT hardware ($M)"), width="stretch")
+    with st.expander("Operations readiness: handover, change control, incident levels, metrics"):
+        for k, items in CX.OPS_READINESS.items():
+            _mk(f"**{k}**")
+            for x in items:
+                _mk(f"- {x}")
     _cp(f"Investment at year 0 = facility + IT hardware. GPU rental price change "
                f"{float(i.get('price_change') or 0):+.0%}/yr between refreshes, IT refresh every 5 years at 70% of the "
                "original cost, 8% discount rate (assumptions). Payback counts from ready-for-service, not from the "
@@ -196,46 +203,119 @@ def tab_ops(res):
 
 
 # ------------------------------------------------------------------ schedule & risks
+TRACK_COLOR = {"Pre-construction": GREY, "Build": GREEN, "Waiting": "#E5484D", "Commissioning": AMBER,
+               "Closeout": "#5B8DEF"}
+
+
+def _gantt(S):
+    ph = [p for p in S["phases"] if p["kind"] != "milestone"]
+    fig = go.Figure()
+    for tr, col in TRACK_COLOR.items():
+        rows = [p for p in ph if p["track"] == tr]
+        if rows:
+            fig.add_trace(go.Bar(y=[p["phase"][:60] for p in rows], x=[max(p["dur"], 0.15) for p in rows],
+                                 base=[p["start"] for p in rows], orientation="h", name=tr, marker_color=col,
+                                 hovertext=[f"months {p['start']:.1f}-{p['end']:.1f}. {p['note']}" for p in rows]))
+    for p in S["phases"]:
+        if p["kind"] == "milestone":
+            fig.add_vline(x=p["start"], line_dash="dot", line_color="#DDDDDD")
+            fig.add_annotation(x=p["start"], y=1.02, yref="paper", text=p["phase"].split(" (")[0].split(" /")[0],
+                               showarrow=False, font_size=10)
+    fig.update_yaxes(autorange="reversed")
+    fig.update_xaxes(title="Months from project start")
+    return dark(fig, 120 + 26 * len(ph), title="Phase schedule", barmode="overlay")
+
+
 def tab_schedule(res):
-    sch = res["design"]["schedule"] if res["mode"] == "greenfield" else res["schedule"]
-    _mk(f"**Ready for service in about {sch['months_to_rfs']:.0f} months.** Critical path: {sch['critical_path']}.")
-    t = R.schedule_table(sch)
+    S = res["cx"]["schedule"]
+    _mk(f"**Ready for IT (substantial completion) in about {S['sc']:.0f} months, {S['sc_date']:%b %Y}.** "
+        f"Critical path: {S['critical_path']}. Notice to proceed month {S['ntp']:.1f}; build "
+        f"{S['build_months']:.1f} months{' (auto from MW)' if S['build_months_auto'] else ''}; energization starts "
+        f"month {S['energization']:.1f}; commissioning starts month {S['cx_start']:.1f}.")
+    st.plotly_chart(_gantt(S), width="stretch")
+    _cp(f"Work week {S['overtime_hours']} h (field-work factor {S['overtime_factor']:.2f}), weather "
+        f"+{S['weather']:.0%} on exterior work, congestion +{S['congestion']:.0%} on interior work and commissioning. "
+        "Overtime does not compress commissioning. Build duration auto-scales with MW when Build months = 0.")
+    t = R.schedule_table(res["design"]["schedule"] if res["mode"] == "greenfield" else res["schedule"])
     fig = go.Figure(go.Bar(x=t["Months"], y=t["Driver"], orientation="h",
                            marker_color=[GREEN if c else GREY for c in t["Critical"]],
                            text=[f"{m:.0f} mo" for m in t["Months"]], textposition="auto"))
-    st.plotly_chart(dark(fig, 260, title="Schedule drivers (months)"), width="stretch")
-    _mk("**Long-lead equipment**")
-    _df(R.long_lead_table())
-    _mk("**Key risks**")
-    v = R.main_design(res)["v"]
-    risks = ["Utility interconnection: large new loads often wait years; get a committed energization date.",
-             "Transformers and generators: reserve factory slots at or before design start.",
-             f"Floor loading: about {v['rack_psf']:,.0f} psf on the rack footprint vs a 250 psf typical raised-floor "
-             "rating; slab-on-grade or a strengthened structure is needed above that.",
-             "Liquid cooling: water quality, leak detection, CDU redundancy and commissioning of the cooling loop.",
-             "Roadmap risk: announced rack power, weight and price can change; keep provisions flexible.",
-             "Refrigerants: low-GWP (below 700) rules for new chillers in the US from 2027."]
-    for r_ in risks + res["warnings"]:
+    st.plotly_chart(dark(fig, 240, title="What sets the date: completion month if each constraint acted alone"),
+                    width="stretch")
+    _mk("**Order-by dates** (reverse schedule from the date each item is needed on site)")
+    _df(R.order_by_table(res))
+    _cp(f"Chain per item: specification and RFQ {CX.PROCUREMENT['spec_rfq']} wk + bids {CX.PROCUREMENT['bids']} wk + "
+        f"award/PO {CX.PROCUREMENT['po']} wk + submittals {CX.SUBMITTAL_WEEKS} wk + quoted lead + "
+        f"{CX.PROCUREMENT['staging']} wk staging, plus a {CX.PROCUREMENT['buffer_pct']:.0%} buffer on submittals and lead. "
+        "'Order before NTP' means the PO must be placed before construction starts (owner-direct purchase or an "
+        "early-release package). " + CX.TURBINE_NOTE)
+    _mk("**Risk register** (auto-enabled from your inputs; impact in months, no probabilities)")
+    show_all = st.toggle("Show inactive risks too", False, key="risk_all")
+    _df(R.risk_table(res, active_only=not show_all))
+    with st.expander("Long-lead equipment, 2026 ranges"):
+        _df(R.long_lead_table())
+    for r_ in res["warnings"]:
         _mk(f"- {r_}")
+
+
+# ------------------------------------------------------------------ build & commission
+def tab_build(res):
+    cx = res["cx"]
+    T = R.cx_tables(res)
+    st.error(esc_md(CX.HARD_STOP))
+    _mk("**Commissioning levels L1-L5**")
+    _df(T["cx_levels"])
+    lb = cx["load_banks"]
+    c = st.columns(4)
+    metric(c[0], "Halls for IST", f"{lb['halls']}", f"{lb['hall_mw']:,.1f} MW each")
+    metric(c[1], "Liquid load banks / hall", f"{lb['liquid_units_250kw']}", f"{lb['liquid_mw']:,.1f} MW (250 kW units)")
+    metric(c[2], "Air load banks / hall", f"{lb['air_units_1mw']}", f"{lb['air_mw']:,.1f} MW (1 MW units)")
+    metric(c[3], "Generator test", "2 h", "NFPA 110: 30% / 50% / 100%")
+    for n in lb["notes"]:
+        _mk(f"- {n}")
+    _mk("**Integrated systems test: failure scenarios**")
+    _df(T["ist_scenarios"])
+    _mk("**Handoff feeds**: scope boundary, spec, test, common failure and prevention")
+    _df(T["handoff_feeds"])
+    with st.expander("IT-readiness sequence (30 steps, in order)"):
+        _df(T["it_readiness"], height=420)
+    _mk("**QA checklists**")
+    for k, items in CX.CHECKLISTS.items():
+        with st.expander(k):
+            for x in items:
+                _mk(f"- [ ] {x}")
+    c1, c2, c3 = st.columns(3)
+    c1.download_button("⬇ Checklists (PDF)", R.checklist_pdf(res), file_name="rackready_build_checklists.pdf",
+                       mime="application/pdf", width="stretch", key="dl_cx_pdf",
+                       help="Multi-page field checklist: hard stop, order-by dates, L1-L5, IST, feeds, QA lists.")
+    md = "\n\n".join([f"# Build & commission: {res['inputs']['project_name']}", CX.HARD_STOP] +
+                       [f"## {k.replace('_', ' ').title()}\n\n{v.to_markdown(index=False)}" for k, v in T.items()])
+    c2.download_button("⬇ Build & commission (Markdown)", md, file_name="rackready_build_commission.md",
+                       mime="text/markdown", width="stretch", key="dl_cx_md")
+    c3.download_button("⬇ Checklists (CSV)", T["checklists"].to_csv(index=False), file_name="rackready_checklists.csv",
+                       mime="text/csv", width="stretch", key="dl_cx_csv")
 
 
 # ------------------------------------------------------------------ assumptions & sources
 SOURCES = [
-    ("JLL, 2026 Global Data Center Outlook", "Average shell & core $11.3M/MW (air-cooled), liquid cooling adds about "
-     "10%, AI fit-out can reach $25M/MW; grid waits above 4 years in primary markets"),
-    ("Cushman & Wakefield, Data Center Development Cost Guide 2026", "US & Canada greenfield all-in average "
-     "$17.6M/MW (excluding IT); costs up about 21% since 2024"),
-    ("Turner & Townsend, Data Centre Construction Cost Index 2025-26", "Market cost per watt; AI builds carry a "
-     "7-10% premium; about 5.5% annual inflation"),
-    ("Uptime Institute, Global Data Center Survey 2025", "Average PUE 1.54; new large sites about 1.44"),
-    ("NVIDIA and OEM (HPE, Lenovo, Supermicro) GB300 NVL72 specifications", "132-140 kW operating, up to 155 kW peak, "
+    ("Global data center cost outlooks, 2026 (commercial real-estate advisors)", "Average shell & core about "
+     "$11.3M/MW (air-cooled), liquid cooling adds about 10%, AI fit-out can reach $25M/MW; US & Canada greenfield "
+     "all-in about $17.6M/MW excluding IT; grid waits above 4 years in primary markets"),
+    ("Data center construction cost index, 2025-26 (cost consultancy)", "AI builds carry a 7-10% premium; about "
+     "5.5% annual construction inflation"),
+    ("Global data center industry survey, 2025", "Average PUE 1.54; new large sites about 1.44"),
+    ("GB300 NVL72 published specifications (platform and system makers)", "132-140 kW operating, up to 155 kW peak, "
      "about 3,300-3,480 lb, about 90% liquid-cooled"),
-    ("NVIDIA GTC 2025 / NVIDIA technical blog 2025", "Vera Rubin (2H 2026), Rubin Ultra NVL576 Kyber about 600 kW "
-     "(2H 2027), 800 VDC for MW-class racks"),
-    ("US EIA, Electric Power Monthly 2026", "US industrial electricity about 9 cents/kWh"),
-    ("Wood Mackenzie, 2025 transformer supply study", "Power transformer lead time about 128 weeks"),
+    ("Public GPU roadmap, 2025", "Vera Rubin (2H 2026), Rubin Ultra NVL576 Kyber about 600 kW (2H 2027), 800 VDC "
+     "for MW-class racks"),
+    ("US government energy statistics, 2026", "US industrial electricity about 9 cents/kWh"),
+    ("2025 transformer supply-chain study and 2026 procurement surveys", "Large power transformers about 128 weeks; "
+     "MV switchgear 52-104 weeks; large diesel gensets 62-110 weeks"),
     ("Public GPU rental trackers, Oct 2026", "H100 about $2.4-3.6/GPU-hr; B200 $3.7-8.6; GB200/GB300 $6-18"),
-    ("ASHRAE TC 9.9 liquid cooling guidance", "Facility and technology cooling loops, warm-water temperatures"),
+    ("ASHRAE TC 9.9 thermal and liquid cooling guidance", "Recommended inlet 18-27 C for all air classes with "
+     "dew-point limits; liquid classes W17-W45 and W+"),
+    ("NFPA 13, 20, 22, 70, 110, 2001, 51B; IPC; NETA ATS; TIA-942-B; BICSI 002; AACE 18R-97",
+     "Fire, electrical, emergency power, plumbing, testing, cabling and estimate-class rules used in the calculations"),
 ]
 
 
@@ -245,16 +325,30 @@ def tab_assumptions(res):
     _df(R.checks_table(res))
     _mk("**Main assumptions** (change them in the sidebar under Advanced)")
     x = res["design"] if res["mode"] == "greenfield" else res["future"]
-    rows = [("Location factor", f"{E.REGIONS[i['region']]['factor']:.2f} vs N. Virginia", "Market cost indices (JLL, T&T); assumption"),
+    rows = [("Location factor", f"{E.REGIONS[i['region']]['factor']:.2f} vs N. Virginia", "Market cost indices; assumption"),
             ("Contingency", f"{float(i['contingency']):.0%}" if res["mode"] == "greenfield" else "10%", "Planning stage; assumption"),
-            ("Escalation", f"{float(i.get('escalation') or 0):.0%}/yr to construction mid-point", "T&T 2025-26 about 5.5%"),
-            ("Power price", f"${x['power_cost']:.3f}/kWh", "Regional default; EIA for US"),
+            ("Escalation", f"{float(i.get('escalation') or 0):.0%}/yr to construction mid-point", "Cost index 2025-26 about 5.5%"),
+            ("Power price", f"${x['power_cost']:.3f}/kWh", "Regional default; US government energy statistics"),
             ("GPU rental", f"${x['gpu_price']:.2f}/GPU-hr at {i['utilization']:.0%} utilization", "Contract-rate assumption within public ranges"),
             ("Rental price change", f"{float(i.get('price_change') or 0):+.0%}/yr", "Assumption"),
             ("Land", f"${R._land(i):,.0f}/acre", "Indicative powered-land price; assumption"),
             ("Discount rate", "8%", "Assumption"),
             ("Cooling rule", "Direct-to-chip liquid above 45 kW/rack", "Air about 30 kW, rear-door about 45 kW practical limits")]
     _df(pd.DataFrame(rows, columns=["Item", "Value", "Basis"]))
+    _mk("**Estimate class**")
+    _cp(CX.ESTIMATE_LABEL)
+    _df(R.aace_table())
+    _mk("**Stage gates 0-7**")
+    _df(R.cx_tables(res)["stage_gates"])
+    _mk("**Specification quick reference** (current codes and standards)")
+    _df(R.cx_tables(res)["spec_reference"], height=420)
+    for k, items in CX.PLANNING_NOTES.items():
+        with st.expander(k):
+            for x in items:
+                _mk(f"- {x}")
+    with st.expander("Glossary"):
+        for k, v in CX.GLOSSARY.items():
+            _mk(f"- **{k}**: {v}")
     _mk("**GPU platforms**")
     _df(R.platform_table())
     _mk("**Public sources**")

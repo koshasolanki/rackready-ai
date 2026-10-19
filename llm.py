@@ -35,9 +35,17 @@ Domain you apply:
 - Power: utility service in MVA (power factor), main transformers, unit substations, switchgear, UPS with
   short battery ride-through, standby generators (N, N+1, N+2, 2N) and fuel storage, row busway sized by
   I = P / (sqrt3 x V x PF). PUE is an annual energy ratio, not a peak multiplier.
-- Long-lead equipment drives the schedule: power transformers about 128 weeks, generators about 78-104
-  weeks; utility interconnection often takes years. Recommend early procurement and reservation deals.
-- Uptime-style resilience wording (Tier II/III/IV-style); do not claim certification.
+- Long-lead equipment drives the schedule (2026): large power transformers about 100-160 weeks (average
+  about 128), MV switchgear 52-104 weeks, large diesel generators 62-110 weeks, UPS 30-60, chillers 40-70,
+  CDUs 30-50. Utility interconnection often takes years. Use the schedule JSON: substantial completion month,
+  notice to proceed, the critical path and the order-by dates (RFQ and PO by month, items to order before NTP).
+- Commissioning L1-L5 (factory test, delivery/install, start-up, functional test, integrated systems test).
+  Hard stop: no IT power-on until the liquid loop passes leak test, flushing, chemistry and leak detection.
+  Substantial completion follows a passed IST.
+- The estimate is AACE Class 5 (concept screening, about -20% to -50% / +30% to +100%).
+- Tier-style resilience wording (Tier I/III/IV-style); do not claim certification. Units needed plus one
+  spare is N+1 (never "2N+1").
+- Never name companies, vendors, people, projects or sites.
 
 Rules:
 - If project_type starts with "Greenfield" there is ONE new build: never mention a current build or a
@@ -48,7 +56,8 @@ Rules:
   provisions now, full future build) and why the engine's lowest present cost wins; list the key provisions.
 - Use design_calculations to state the key engineering quantities (MVA, generators, UPS, tons, CDUs, flow,
   floor loading, PUE, water).
-- Mention any benchmark check outside its range and every warning.
+- Mention any benchmark check outside its range and every warning, and the top active risks from
+  risk_register (impact in months).
 
 Write exactly these sections, concise (about 450-650 words in total):
 ## Executive summary
@@ -231,9 +240,17 @@ def fallback_narrative(res: dict) -> str:
     else:
         out.append(f.get("reason", ""))
     out.append("## Key risks")
-    risks = [f"Utility power and interconnection timing (critical path: "
-             f"{(res['design']['schedule'] if gf else res['schedule'])['critical_path']}).",
-             "Long-lead power transformers (about 128 weeks) and generators (78-104 weeks): order early.",
+    S = res["cx"]["schedule"]
+    first = [x for x in S["items"] if not x["flag"].startswith("After")]
+    risks = [f"Schedule: substantial completion (ready for IT) about month {S['sc']:.0f}; critical path: "
+             f"{S['critical_path']}.",
+             ("Order first: " + "; ".join(f"{x['item']} (RFQ by month {max(x['rfq'], 0):.0f}: {x['flag']})"
+                                         for x in first) + "." if first else
+              "All long-lead orders can follow notice to proceed."),
+             "2026 lead times: large power transformers about 100-160 weeks, MV switchgear 52-104, large diesel "
+             "generators 62-110.",
+             "Commissioning hard stop: no IT power-on until the liquid loop passes leak, flush, chemistry and "
+             "leak-detection tests; substantial completion follows a passed integrated systems test.",
              "Roadmap uncertainty: announced rack densities, weights and prices can change before delivery.",
              f"Floor loading: about {v['rack_psf']:,.0f} psf on the rack footprint; confirm slab design.",
              "Liquid cooling commissioning and water quality for the technology cooling loop."]
@@ -242,7 +259,8 @@ def fallback_narrative(res: dict) -> str:
     out.append("\n".join(["- Confirm firm MW and the energization date with the utility; secure transformer and generator slots.",
             "- Freeze the rack platform and density; get the OEM rack power, weight and coolant specs in writing.",
             "- Carry the future-ready provisions into the basis of design and the site layout.",
-            "- Replace these planning rates with a quantity-based estimate at concept design.",
+            "- Replace these planning rates with a quantity-based estimate at concept design (this is an AACE Class 5 "
+            "concept estimate).",
             "- " + DISCLAIMER_TEXT]))
     return "\n\n".join(out)
 

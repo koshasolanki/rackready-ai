@@ -74,7 +74,41 @@ DEFAULTS = {
     "site_coverage": 0.35,      # building + yards as share of site (setbacks, roads, stormwater)
     "yard_sf_per_gen": 1_200, "yard_sf_per_mva": 300, "yard_sf_per_mw_reject": 300,
     "floor_rating_psf": 250,    # TIA-942 recommended computer-room floor loading (12 kPa)
+    # MV distribution
+    "mv_kv_onsite": 34.5,       # on-site substation secondary (35 kV class, 38 kV switchgear)
+    "mv_kv_utility": 13.8,      # utility medium-voltage service (15 kV class)
+    # fire protection (NFPA 13 / 20 / 22 / 2001); hazard class is set by the engineer, AHJ and insurer
+    "spk_density": 0.15, "spk_density_oh2": 0.20, "spk_area_sf": 1500.0, "spk_dry_factor": 1.30,
+    "hose_gpm": 250.0, "fire_minutes": 60.0, "head_sf": 130.0,
+    "agent_C": 4.2, "agent_k1": 0.9856, "agent_k2": 0.002441, "agent_T_F": 70.0,
+    "agent_room_sf": 4_500.0, "agent_room_ft": 12.0,   # entrance rooms + main distribution area (assumption)
+    # thermal storage and towers
+    "ride_through_min": 10.0, "tes_fom": 0.90, "drift_pct": 0.00002,
+    # site water
+    "c_pre": 0.30, "c_imp": 0.95, "impervious": 0.60, "storm_in_hr": 3.0,
+    # network
+    "front_end_share": 0.25, "fiber_trunk": 144, "entrance_sep_m": 20.0,
 }
+
+MV_BUS_A = [1200, 2000, 3000, 4000]
+BRANCH_A = [100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500, 600, 700, 800, 1000, 1200]   # NEC 240.6(A)
+FIRE_PUMP_GPM = [250, 300, 400, 450, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000]                  # NFPA 20 ratings
+BTU_PER_KW = 3412.14
+# Hunter's curve, flush-tank systems (IPC Appendix E, Table E103.3(3)): (WSFU, gpm)
+HUNTER = [(1, 3.0), (2, 5.0), (3, 6.5), (4, 8.0), (5, 9.4), (6, 10.7), (8, 12.8), (10, 14.6), (12, 16.0), (14, 17.0),
+          (16, 18.0), (18, 18.8), (20, 19.6), (25, 21.5), (30, 23.3), (35, 24.9), (40, 26.3), (45, 27.7), (50, 29.1),
+          (60, 32.0), (70, 35.0), (80, 38.0), (90, 41.0), (100, 43.5), (120, 48.0), (140, 52.5), (160, 57.0),
+          (180, 61.0), (200, 65.0), (225, 70.0), (250, 75.0), (300, 85.0), (400, 105.0), (500, 124.0)]
+
+
+def hunter_gpm(wsfu: float) -> float:
+    pts = HUNTER
+    if wsfu <= pts[0][0]:
+        return pts[0][1]
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        if wsfu <= x1:
+            return y0 + (y1 - y0) * (wsfu - x0) / (x1 - x0)
+    return pts[-1][1] * wsfu / pts[-1][0]
 
 BUSWAY_A = [800, 1000, 1200, 1600, 2000, 2500, 3000, 4000, 5000]
 BREAKER_A = [800, 1200, 1600, 2000, 2500, 3000, 4000, 5000, 6000]
@@ -125,7 +159,7 @@ def fmt(x, d=0):
 def design(*, racks: float, kw: float, kw_peak: float, cooling: str, liquid: float, weight_lb: float,
            rack_w_m: float, rack_d_m: float, white_sf: float, gsf_per_mw: float, cdu_mw: float,
            resilience: str = "N+1", utilization: float = 0.8, land_per_acre: float = 0.0,
-           params: dict | None = None) -> dict:
+           params: dict | None = None, gpus: int = 0) -> dict:
     p = dict(DEFAULTS)
     for k, val in (params or {}).items():
         if val is not None:
@@ -175,10 +209,28 @@ def design(*, racks: float, kw: float, kw_peak: float, cooling: str, liquid: flo
         sp = n if resilience == "2N" else (0 if resilience == "N" else 1)
         c.add("main_tx", S, "On-site HV/MV main transformers", f"N = ceil(S / {p['main_tx_mva']:.0f} MVA) + redundancy",
               f"ceil({svc_mva:,.1f} / {p['main_tx_mva']:.0f}) = {n}; +{sp} ({resilience})", n + sp, "units",
-              f"{p['main_tx_mva']:.0f} MVA each", note="Typical 60-100 MVA units; lead time 2+ years.")
+              f"{p['main_tx_mva']:.0f} MVA each",
+              note=("Typical 60-100 MVA units; lead time about 2.5 years. Units needed + one spare is N+1 "
+                    "(not '2N+1'); 2N = two full sets." if resilience != "2N" else
+                    "2N: two complete sets, each able to carry the full load; lead time about 2.5 years."))
     else:
         c.add("main_tx", S, "On-site HV substation", "Needed when S > 40 MVA (planning rule)",
               f"{svc_mva:,.1f} MVA", 0, "units", note="Medium-voltage utility service; no on-site HV yard.")
+    v_mv = p["mv_kv_onsite"] if onsite else p["mv_kv_utility"]
+    i_svc = svc_mva * 1e6 / (SQRT3 * v_mv * 1000)
+    c.add("mv_amps", S, "MV current, whole service", "I = S / (sqrt3 x V_MV)",
+          f"{svc_mva:,.1f} MVA / (1.732 x {v_mv:.1f} kV)", i_svc, "A",
+          note=f"{'On-site substation secondary' if onsite else 'Utility MV service'} at {v_mv:.1f} kV.")
+    i_feed = (p["main_tx_mva"] * 1e6 / (SQRT3 * v_mv * 1000)) if onsite else i_svc
+    bus = pick(1.25 * i_feed, MV_BUS_A)
+    n_line = math.ceil(1.25 * i_feed / MV_BUS_A[-1] - 1e-9) if not bus else 1
+    c.add("mv_bus_a", S, "MV switchgear main bus rating (per lineup)",
+          "I_feed = S_source / (sqrt3 x V); bus >= 1.25 x I_feed",
+          f"{(p['main_tx_mva'] if onsite else svc_mva):,.1f} MVA / (1.732 x {v_mv:.1f} kV) = {i_feed:,.0f} A x 1.25",
+          bus or MV_BUS_A[-1], "A",
+          f"{'38' if onsite else '15'} kV class; {'one lineup per main transformer, A/B with tie' if onsite else f'{n_line} main(s), main-tie-main'}",
+          note="Interrupting rating (commonly 25-40 kA) comes from the fault study; arc-resistant Type 2B "
+               "(IEEE C37.20.7) where specified." + ("" if bus else " Feed exceeds 4,000 A: split into more lineups."))
     unit_cap_kva = p["unit_sub_kva"] * p["unit_sub_loading"]
     n_it = math.ceil((ups_in + dist) / p["pf_service"] / unit_cap_kva - 1e-9)
     sp_it = spares(n_it, resilience, 4)
@@ -204,7 +256,9 @@ def design(*, racks: float, kw: float, kw_peak: float, cooling: str, liquid: flo
     gens = c.add("gens", S, "Standby generators", f"N = ceil(P_fac / {p['gen_mw']:.1f} MW) + spares",
                  f"ceil({fac_pk / 1000:,.1f} / {p['gen_mw']:.1f}) = {g_run}; +{g_sp} ({resilience})", g_run + g_sp,
                  "units", f"{p['gen_mw']:.1f} MW each",
-                 note=f"N+1 = one spare per group of up to {p['gen_group']} running sets; 2N = full duplicate plant.")
+                 note=f"Sized on kW: genset kW ratings already assume 0.8 PF, so dividing by 0.8 first would "
+                      f"double-count it. N+1 = one spare per group of up to {p['gen_group']} running sets; "
+                      "2N = full duplicate plant.")
     c.v["gens_run"] = g_run
     c.add("gen_kva", S, "Generator kVA rating (each)", "S = P / PF", f"{p['gen_mw'] * 1000:,.0f} kW / 0.80",
           p["gen_mw"] * 1000 / 0.8, "kVA", note="Gensets are rated at 0.8 PF.")
@@ -212,7 +266,9 @@ def design(*, racks: float, kw: float, kw_peak: float, cooling: str, liquid: flo
                  f"{fmt(fac_pk)} kW x {p['fuel_gal_per_kwh']:.3f} x {p['fuel_hours']:.0f} h",
                  fac_pk * p["fuel_gal_per_kwh"] * p["fuel_hours"], "gal",
                  f"{fac_pk * p['fuel_gal_per_kwh'] * p['fuel_hours'] * L_PER_GAL / 1000:,.0f} m3",
-                 note="Usable fuel at design load; add unusable volume and code/insurer reserve.")
+                 note=f"Usable fuel at design load (burn {fac_pk * p['fuel_gal_per_kwh']:,.0f} gal/h, so each "
+                      f"100,000 gal lasts about {100_000 / max(fac_pk * p['fuel_gal_per_kwh'], 1e-9):,.0f} h). Add "
+                      "unusable volume and any code or insurer reserve; Tier topology needs at least 12 h.")
     u_run = math.ceil(ups_load / 1000 / p["ups_module_mw"] - 1e-9)
     u_sp = spares(u_run, resilience, p["ups_group"])
     c.add("ups_modules", S, "UPS modules", f"N = ceil(P_UPS / {p['ups_module_mw']:.1f} MW) + spares",
@@ -248,6 +304,17 @@ def design(*, racks: float, kw: float, kw_peak: float, cooling: str, liquid: flo
     c.add("busway_rating", S, "Selected busway rating", "smallest standard size >= 1.25 x I",
           f"{i_bw * 1.25:,.0f} A", bw or 0, "A",
           note="Dedicated feeder per rack required." if not bw else "")
+    side_kva = kw_peak / p["pf_rack"]
+    brk = pick(1.25 * i_rack, BRANCH_A)
+    c.add("ab_side_kva", S, "A/B check: capacity needed on EACH side", "S_side >= P_rack / PF (one side carries it all)",
+          f"{kw_peak:,.0f} kW / {p['pf_rack']:.2f}", side_kva, "kVA",
+          f"each side breaker >= 1.25 x {i_rack:,.0f} A -> {brk or '>1,200'} A",
+          note="PASS only if each feed alone carries the whole rack. Failing example: two 45 kVA feeds for a "
+               "50 kW rack (45 kVA < 50.5 kVA).")
+    c.add("busway_loading", S, "Busway continuous loading", "loading = I_run / rating (must be <= 80%)",
+          f"{i_bw:,.0f} A / {bw or 0:,} A", (i_bw / bw * 100) if bw else 100.0, "%",
+          note=("PASS: within the 80% continuous-load limit (NEC 210.19 / 215.2)." if bw and i_bw / bw <= 0.8 + 1e-9
+                else "FAIL: above 80% of rating; add runs or use a larger rating."))
     c.add("busbar54_amps", S, "In-rack 54 VDC busbar current", "I = P_rack / 54 V",
           f"{kw_peak * 1000:,.0f} W / 54 V", kw_peak * 1000 / 54, "A",
           note="Why MW-class racks move to 800 VDC: at 54 V the copper becomes impractical.")
@@ -315,6 +382,20 @@ def design(*, racks: float, kw: float, kw_peak: float, cooling: str, liquid: flo
                   f"{(q_total + w_comp) / KW_PER_TON:,.0f} tons",
                   note=("Liquid heat to dry/adiabatic coolers; air-side heat via chillers." if is_d2c else
                         "Water-cooled chillers and cooling towers."))
+    dT_air_F = p["air_dT"] * 1.8
+    c.add("air_cfm_us", S, "Airflow check in US units", "CFM = BTU/h / (1.08 x dT_F)",
+          f"{q_air * BTU_PER_KW:,.0f} BTU/h / (1.08 x {dT_air_F:.1f} F)", q_air * BTU_PER_KW / (1.08 * dT_air_F),
+          "CFM", note="Standard-air constant 1.08 = 60 min x 0.075 lb/ft3 x 0.24 BTU/lb.F; agrees with the SI line.")
+    dT_chw_F = p["chw_dT"] * 1.8
+    c.add("chw_gpm_us", S, "Chilled-water check in US units", "GPM = tons x 24 / dT_F  (= BTU/h / (500 x dT_F))",
+          f"{q_chw / KW_PER_TON:,.0f} tons x 24 / {dT_chw_F:.1f} F", q_chw / KW_PER_TON * 24 / dT_chw_F, "gpm",
+          note="500 = 8.33 lb/gal x 60 min x 1 BTU/lb.F.")
+    tes = q_chw * p["ride_through_min"] * 60 / (p["w_rho"] * p["w_cp"] * p["chw_dT"] * p["tes_fom"])   # m3
+    c.add("tes_m3", S, "Thermal storage for chiller restart", "V = Q_chw x t / (rho x cp x dT x FOM)",
+          f"{fmt(q_chw)} kW x {p['ride_through_min']:.0f} min / (997 x 4.18 x {p['chw_dT']:.1f} K x {p['tes_fom']:.2f})",
+          tes, "m3", f"{tes * 1000 / L_PER_GAL:,.0f} gal",
+          note="Covers chilled-water load while chillers restart on generator power (assumption: 10 min to full "
+               "capacity). Warm-water dry-cooler loops ride through on UPS-backed pumps and fans instead.")
     if not is_d2c:
         cw = (q_chw + w_comp) / (p["w_rho"] * p["w_cp"] * p["cw_dT"])
         c.add("cw_lps", S, "Condenser-water flow (towers)", "V = Q_reject / (rho x cp x dT)",
@@ -339,6 +420,21 @@ def design(*, racks: float, kw: float, kw_peak: float, cooling: str, liquid: flo
                     f"(3,600/{p['h_fg']:.0f}) x (1 + 1/{p['coc'] - 1:.0f}) x {q_rej / it_kw:.3f}",
                     3600 / p["h_fg"] * (1 + 1 / (p["coc"] - 1)) * q_rej / it_kw, "L/kWh",
                     note=f"Evaporation plus blowdown at {p['coc']:.0f} cycles of concentration; full-tower basis.")
+    ev_kgs = q_rej / p["h_fg"]
+    ev_gpm = ev_kgs / p["w_rho"] * 1000 / L_PER_GAL * 60
+    rej_tons = q_rej / KW_PER_TON
+    mk_gpm = ev_gpm * p["coc"] / (p["coc"] - 1)
+    c.add("tower_evap_gpm", S, "Cooling-tower evaporation (design day)" + (" if towers were used" if is_d2c else ""),
+          "E = Q_reject / h_fg", f"{fmt(q_rej)} kW / {p['h_fg']:.0f} kJ/kg = {ev_kgs:,.1f} kg/s", ev_gpm, "gpm",
+          f"{ev_gpm / max(rej_tons / 100, 1e-9):,.2f} gpm per 100 tons rejected",
+          note="Physics gives about 2.3-2.4 gpm per 100 tons of heat rejected (about 3 per 100 evaporator tons "
+               "with compressor heat). Values near 1.5 understate it.")
+    c.add("tower_makeup_gpm", S, "Cooling-tower make-up (evaporation + blowdown + drift)",
+          "M = E x CoC / (CoC - 1); blowdown incl. drift = E / (CoC - 1)",
+          f"{ev_gpm:,.0f} gpm x {p['coc']:.0f} / {p['coc'] - 1:.0f}", mk_gpm, "gpm",
+          f"{mk_gpm / max(rej_tons / 100, 1e-9):,.2f} gpm per 100 tons; drift about 0.0005-0.002% of circulation",
+          note=("Dry/adiabatic coolers (this design) avoid most of this; closed loops do not consume water." if is_d2c
+                else f"At {p['coc']:.0f} cycles of concentration. A Legionella water management program (ASHRAE 188) is required."))
     water_m3 = c.add("water_m3", S, "Annual site water", "W = WUE x E_IT", f"{wue:.2f} L/kWh x {fmt(it_mwh)} MWh",
                      wue * it_mwh, "m3/yr", f"{wue * it_mwh * 1000 / L_PER_GAL / 1e6:,.1f} million gal/yr")
 
@@ -378,4 +474,86 @@ def design(*, racks: float, kw: float, kw_peak: float, cooling: str, liquid: flo
                   note="Yards: generators, HV substation, heat rejection. Coverage covers setbacks, roads, stormwater.")
     c.add("land_cost", S, "Land cost", "C = acres x $/acre", f"{acres:,.1f} x ${land_per_acre:,.0f}",
           acres * land_per_acre, "$")
+    # ---------------------------------------------------------------- 8. fire protection
+    S = "8. Fire protection"
+    area = p["spk_area_sf"] * p["spk_dry_factor"]
+    c.add("spk_area_sf", S, "Sprinkler design area (double-interlock pre-action)", "A = 1,500 sf x 1.30",
+          f"{p['spk_area_sf']:,.0f} sf x {p['spk_dry_factor']:.2f}", area, "sf",
+          note="NFPA 13 (2022/2025): dry and double-interlock pre-action systems add 30% to the design area.")
+    q_spk = c.add("spk_gpm", S, "Sprinkler demand", "Q = density x area",
+                  f"{p['spk_density']:.2f} gpm/sf (OH-1) x {area:,.0f} sf", p["spk_density"] * area, "gpm",
+                  note=f"OH-2 at {p['spk_density_oh2']:.2f} gpm/sf gives {p['spk_density_oh2'] * area:,.0f} gpm. The "
+                       "hazard class is set by the engineer, AHJ and insurer: show it as a range.")
+    q_tot = c.add("fire_total_gpm", S, "Total fire water demand", "Q_total = Q_sprinkler + hose allowance",
+                  f"{q_spk:,.1f} + {p['hose_gpm']:.0f} gpm", q_spk + p["hose_gpm"], "gpm",
+                  note="Hose allowance 250 gpm (inside + outside) for ordinary hazard; hydraulic calc adds friction "
+                       "and elevation.")
+    fp = pick(q_tot, FIRE_PUMP_GPM)
+    c.add("fire_pump_gpm", S, "Fire pump rating", "smallest NFPA 20 rating >= demand", f"{q_tot:,.1f} gpm", fp or 0,
+          "gpm", note="Must deliver >= 65% of rated pressure at 150% of rated flow (NFPA 20). Electric plus diesel "
+                      "where the water-supply reliability requires; confirm whether hose demand comes from the city main.")
+    c.add("fire_tank_gal", S, "Fire water storage", "V = Q_total x duration",
+          f"{q_tot:,.1f} gpm x {p['fire_minutes']:.0f} min", q_tot * p["fire_minutes"], "gal",
+          f"{q_tot * p['fire_minutes'] * L_PER_GAL / 1000:,.0f} m3; 90 min: {q_tot * 90:,.0f} gal",
+          note="60 min where waterflow and supervisory alarms are monitored at a constantly attended location, "
+               "otherwise 90 min (NFPA 13); tank per NFPA 22.")
+    c.add("spk_heads", S, "Sprinkler heads in the data halls", "n = white space / 130 sf per head",
+          f"{fmt(white)} sf / {p['head_sf']:.0f} sf", math.ceil(white / p["head_sf"]), "units",
+          note="Maximum coverage per standard-spray head in ordinary hazard; coordinate with containment.")
+    vol = p["agent_room_sf"] * p["agent_room_ft"]
+    sv = p["agent_k1"] + p["agent_k2"] * p["agent_T_F"]
+    C = p["agent_C"]
+    c.add("agent_lb", S, "Clean agent FK-5-1-12 (entrance rooms + MDA)", "W = (V / S) x C / (100 - C);  S = 0.9856 + 0.002441 T",
+          f"({vol:,.0f} ft3 / {sv:.4f} ft3/lb) x {C:.1f} / {100 - C:.1f}", vol / sv * C / (100 - C), "lb",
+          note=f"NFPA 2001 total-flooding formula at {p['agent_T_F']:.0f} F; {C:.1f}% is a typical listed Class C design "
+               "concentration (use the listed system manual). Hold for 10 min; door-fan test. One major producer stopped "
+               "making FK-5-1-12 at the end of 2025: confirm supply or consider an inert-gas system.")
+
+    # ---------------------------------------------------------------- 9. site water and stormwater
+    S = "9. Domestic water and stormwater"
+    occ = 8 + 0.5 * it_mw
+    wc = math.ceil(min(occ, 50) / 25) + max(0, math.ceil((occ - 50) / 50))
+    lav = math.ceil(min(occ, 80) / 40) + max(0, math.ceil((occ - 80) / 80))
+    df = math.ceil(occ / 100)
+    wsfu = wc * 5 + lav * 2 + df * 0.25 + 3 + 2 * 4          # + service sink + 2 showers
+    c.add("fixtures", S, "Plumbing fixtures (business occupancy)", "IPC Table 2902.1: WC 1/25 (first 50) then 1/50; lav 1/40 then 1/80",
+          f"{occ:,.0f} occupants -> {wc} WC, {lav} lav, {df} drinking fountain, 1 service sink, 2 showers",
+          wc + lav + df + 3, "units", note="Occupants = operations staff estimate (8 + 0.5 per MW); confirm with the AHJ.")
+    c.add("domestic_gpm", S, "Domestic water peak demand", "WSFU (IPC Table E103.3(2)) -> gpm (Hunter's curve, E103.3(3))",
+          f"{wsfu:,.1f} WSFU (WC 5, lav 2, shower 4, sink 3, fountain 0.25)", hunter_gpm(wsfu), "gpm",
+          note="Domestic only; process make-up for cooling is separate (see 6).")
+    area_ac = acres
+    c_post = p["c_imp"] * p["impervious"] + p["c_pre"] * (1 - p["impervious"])
+    q_pre = p["c_pre"] * p["storm_in_hr"] * area_ac
+    q_post = c_post * p["storm_in_hr"] * area_ac
+    c.add("storm_q_cfs", S, "Stormwater peak runoff after development", "Q = C x i x A (rational method)",
+          f"{c_post:.2f} x {p['storm_in_hr']:.1f} in/h x {area_ac:,.1f} ac (before: C = {p['c_pre']:.2f})", q_post, "cfs",
+          f"before development {q_pre:,.0f} cfs",
+          note=f"C = {p['c_imp']:.2f} on {p['impervious']:.0%} impervious, {p['c_pre']:.2f} elsewhere; i = design-storm "
+               "intensity (assumption; use local IDF data, e.g. NOAA Atlas 14).")
+    vdet = (q_post - q_pre) * 3600
+    c.add("detention_acft", S, "Detention volume (screening)", "V = (Q_post - Q_pre) x storm duration (1 h)",
+          f"({q_post:,.0f} - {q_pre:,.0f}) cfs x 3,600 s = {vdet:,.0f} ft3", vdet / SF_PER_ACRE, "acre-ft",
+          f"{vdet * 0.0283168:,.0f} m3",
+          note="Screening by the modified rational method; the local ordinance sets the storms (often 2/10/100-year) "
+               "and method (e.g. NRCS TR-55).")
+
+    # ---------------------------------------------------------------- 10. network
+    S = "10. Network fiber and diversity"
+    fpg = 16 if kw >= 100 else 8
+    n_g = int(gpus or 0)
+    f_rack = n_g * fpg * (1 + p["front_end_share"])
+    c.add("fiber_per_rack", S, "Fibers per rack", "n = GPUs x fibers per GPU port x (1 + front-end/storage/mgmt)",
+          f"{n_g} x {fpg} x (1 + {p['front_end_share']:.0%})", f_rack, "fibers",
+          note=f"{'800G (16 fibers, 2 x 400G-DR4 or DR8)' if fpg == 16 else '400G (8 fibers, DR4/SR4)'} per GPU on the "
+               "compute fabric (planning assumption); confirm with the network design.")
+    n_r = math.ceil(racks - 1e-9)
+    c.add("fiber_backbone", S, "Backbone fibers (leaf to spine, non-blocking)", "n = racks x GPUs x fibers per port",
+          f"{n_r:,} x {n_g} x {fpg}", n_r * n_g * fpg, "fibers",
+          f"about {math.ceil(n_r * n_g * fpg / p['fiber_trunk']):,} x {p['fiber_trunk']}-fiber trunks",
+          note="Plan pathways at about 2x day-one fill for growth.")
+    c.add("entrance_diversity", S, "Entrance diversity", "2 entrance rooms, 2+ carriers, routes >= 20 m apart",
+          f"separation {p['entrance_sep_m']:.0f} m (66 ft)", 2, "units",
+          note="TIA-942-B / BICSI 002 recommendation for higher ratings: diverse entrances on different sides, "
+               "separate fire zones, no shared PDUs or cooling between the two entrance rooms.")
     return {"steps": c.steps, "v": c.v, "params": p, "cooling": cooling, "liquid": lf, "onsite_hv": onsite}

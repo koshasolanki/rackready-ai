@@ -8,14 +8,14 @@ facility, open-shop labour, N+1 block redundancy, including the general contract
 and a 4% construction contingency. It EXCLUDES land, the utility-side interconnection, IT hardware
 (servers, GPUs, network fabric), owner costs, financing, taxes and escalation after 2026. The app adds
 those separately. Public cross-checks are in docs/VERIFICATION.md:
-  * JLL 2026 Global Data Center Outlook: $11.3M/MW shell and core (air-cooled, excludes tech fit-out);
+  * 2026 global data center outlook (real-estate advisor): $11.3M/MW shell and core (air-cooled, excludes tech fit-out);
     liquid cooling adds about 10%; AI tenant fit-out can add up to $25M/MW.
-  * Cushman & Wakefield 2026 Development Cost Guide: $17.6M/MW all-in greenfield (US/Canada,
+  * 2026 development cost guide (real-estate advisor): $17.6M/MW all-in greenfield (US/Canada,
     excluding chips/GPUs).
-  * Turner & Townsend Data Centre Construction Cost Index 2025-26: AI/liquid-cooled builds cost
+  * Data centre construction cost index 2025-26 (cost consultancy): AI/liquid-cooled builds cost
     7-10% more than comparable air-cooled builds.
 
-Rack data: vendor specs where they are public (NVIDIA, HPE, Lenovo, Supermicro). Roadmap platforms
+Rack data: published platform and system-maker specs. Roadmap platforms
 are marked "announced" with estimated values; check them with the vendor before committing money.
 """
 from __future__ import annotations
@@ -119,7 +119,7 @@ P = {
         kw=135.0, kw_peak=155.0, gpus=72, it_per_rack=4_000_000, weight_lb=3_500, rack_w_m=0.6, rack_d_m=1.068,
         liquid=0.90, cdu_mw=1.6, rate=19_162_800, low=18_325_600, high=25_000_000, gsf_per_mw=2_600,
         white_sf=28, fabric_per_mw=5_000_000, gpu_hr=7.00, mix=_MIX["GB300"],
-        spec_note="132-140 kW operating (HPE/Supermicro), 135 kW TDP and up to 155 kW peak (Lenovo); "
+        spec_note="132-140 kW operating, 135 kW TDP and up to 155 kW peak (system-maker specs); "
                   "eight 33 kW power shelves; 3,300-3,480 lb; about 90% liquid / 10% air."),
     "Vera Rubin NVL144": dict(
         label="NVIDIA Vera Rubin NVL144 (announced)", status="announced", year=2026,
@@ -154,7 +154,7 @@ CUSTOM = "Custom density"
 DEFAULT_PLATFORM = "GB300 NVL72"
 
 # Air-cooled anchor for densities below the GPU ladder (enterprise/cloud halls):
-# JLL 2026 shell & core $11.3M/MW (air, excl. fit-out) + light fit-out -> $12.0M/MW at 15 kW/rack.
+# 2026 market shell & core $11.3M/MW (air, excl. fit-out) + light fit-out -> $12.0M/MW at 15 kW/rack.
 AIR_ANCHOR_KW = 15.0
 AIR_ANCHOR_RATE = 12_000_000
 

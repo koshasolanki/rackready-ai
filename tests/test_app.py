@@ -12,7 +12,8 @@ import engine as E  # noqa: E402
 import platforms as PL  # noqa: E402
 
 APP = os.path.join(ROOT, "app.py")
-TABS = ["Costs", "Future-ready", "Design calculations", "Operations & ROI", "Schedule & risks", "Assumptions & sources"]
+TABS = ["Costs", "Future-ready", "Design calculations", "Operations & ROI", "Schedule & risks", "Build & commission",
+        "Assumptions & sources"]
 
 
 @pytest.fixture(autouse=True)
@@ -91,3 +92,19 @@ def test_resilience_and_regions():
         _ok(_run(w_res=r))
     _ok(_run(w_region="India - Mumbai"))
     _ok(_run(w_size_by="Racks", w_racks=64))
+
+
+def test_build_tab_and_estimate_class():
+    at = _run()
+    body = _ok(at)
+    assert "Class 5" in body
+    assert any("Hard stop" in e.value for e in at.error)
+    assert "Order-by dates" in body and "Commissioning levels L1-L5" in body
+
+
+def test_schedule_factors_and_auto_build():
+    at = _run()
+    at.number_input(key="w_cm").set_value(30).run()
+    _ok(at)
+    at.selectbox(key="w_ot").set_value(60).run()
+    _ok(at)

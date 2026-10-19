@@ -8,6 +8,7 @@ from datetime import date
 
 import pandas as pd
 
+import buildcx as CX
 import engine as E
 import platforms as PL
 
@@ -45,6 +46,8 @@ def val(step) -> str:
         d = 1
     else:
         d = 0
+    if u == "gpm" and abs(v) < 1000 and abs(v - round(v)) > 1e-9:
+        d = max(d, 1)
     return f"{v:,.{d}f} {u}".strip()
 
 
@@ -195,6 +198,29 @@ def long_lead_table() -> pd.DataFrame:
                          for a, b, c, d in E.LONG_LEAD])
 
 
+def cx_tables(res) -> dict[str, pd.DataFrame]:
+    """Build, commission and schedule tables (order-by dates, Gantt, risks, checklists ...)."""
+    return {k: pd.DataFrame(v) for k, v in res["cx"]["tables"].items()}
+
+
+def order_by_table(res) -> pd.DataFrame:
+    return cx_tables(res)["order_by"]
+
+
+def gantt_table(res) -> pd.DataFrame:
+    return cx_tables(res)["gantt"]
+
+
+def risk_table(res, active_only=False) -> pd.DataFrame:
+    df = cx_tables(res)["risks"]
+    return df[df["Active"] == "Yes"].reset_index(drop=True) if active_only else df
+
+
+def aace_table() -> pd.DataFrame:
+    return pd.DataFrame([{"Class": c["class"], "Project definition": c["maturity"], "Typical use": c["use"],
+                          "Accuracy low": c["low"], "Accuracy high": c["high"]} for c in CX.AACE_CLASSES])
+
+
 def checks_table(res) -> pd.DataFrame:
     names = {"facility_per_mw_air": "Facility $M per MW (air)", "facility_per_mw_hd": "Facility $M per MW (high density)",
              "fitout_per_mw": "Fit-out $M per MW", "pue": "PUE", "power_cost": "Power price $/kWh",
@@ -222,7 +248,8 @@ def all_tables(res) -> dict[str, pd.DataFrame]:
     t = {"summary_costs": cost_table(res), "design_calculations": design_table(main_design(res)),
          "benchmark_checks": checks_table(res), "schedule": schedule_table(
              res["design"]["schedule"] if res["mode"] == "greenfield" else res["schedule"]),
-         "long_lead": long_lead_table(), "platforms": platform_table()}
+         "long_lead": long_lead_table(), "platforms": platform_table(), "estimate_classes": aace_table()}
+    t.update(cx_tables(res))
     if res["mode"] == "greenfield":
         t["divisions"] = division_table(res)
         t["opex"] = opex_table(res["design"])
@@ -292,13 +319,41 @@ def markdown_report(res, narrative: str = "", narrative_src: str = "") -> str:
             f"utilization; rental price change {float(i.get('price_change') or 0):+.0%}/yr, reset at hardware refresh "
             "(assumption)."]
     sch = res["design"]["schedule"] if res["mode"] == "greenfield" else res["schedule"]
-    out += ["## Schedule & long-lead equipment", _md(schedule_table(sch), num_cols=("Months",)),
-            _md(long_lead_table())]
+    S = res["cx"]["schedule"]
+    out += ["## Schedule & risks",
+            f"Notice to proceed month {S['ntp']:.1f}; build {S['build_months']:.1f} months"
+            f"{' (auto from MW)' if S['build_months_auto'] else ''}; energization starts month {S['energization']:.1f}; "
+            f"substantial completion (ready for IT) month {S['sc']:.1f} ({S['sc_date'].isoformat()}). Work week "
+            f"{S['overtime_hours']} h, weather +{S['weather']:.0%}, congestion +{S['congestion']:.0%}.",
+            "### What sets the date", _md(schedule_table(sch), num_cols=("Months",)),
+            "### Order-by dates (reverse schedule with buffer)", order_by_table(res).to_markdown(index=False),
+            "### Phases", gantt_table(res).to_markdown(index=False),
+            "### Risk register (active)", risk_table(res, True).to_markdown(index=False),
+            "### Long-lead equipment (2026)", _md(long_lead_table()), CX.TURBINE_NOTE]
+    T = cx_tables(res)
+    lb = res["cx"]["load_banks"]
+    out += ["## Build & commission", CX.HARD_STOP,
+            "### Commissioning levels", T["cx_levels"].to_markdown(index=False),
+            "### Integrated systems test scenarios", T["ist_scenarios"].to_markdown(index=False),
+            "### Load banks", "\n".join(f"- {n}" for n in lb["notes"]),
+            "### Handoff feeds", T["handoff_feeds"].to_markdown(index=False),
+            "### IT-readiness sequence", T["it_readiness"].to_markdown(index=False),
+            "### QA checklists", T["checklists"].to_markdown(index=False),
+            "## Stage gates", T["stage_gates"].to_markdown(index=False),
+            "## Specification quick reference", T["spec_reference"].to_markdown(index=False),
+            "## Estimate class", CX.ESTIMATE_LABEL, aace_table().to_markdown(index=False)]
     out += ["## Benchmark checks", _md(checks_table(res))]
     if narrative:
         out += ["## Narrative", f"_{narrative_src}_", narrative]
     out.append(f"_{E.DISCLAIMER} Sources and ranges: docs/VERIFICATION.md in the project repository._")
     return "\n\n".join(out)
+
+
+def _order_line(res) -> str:
+    first = [x for x in res["cx"]["schedule"]["items"] if not x["flag"].startswith("After")]
+    if not first:
+        return "All long-lead orders can follow NTP."
+    return "Order first: " + "; ".join(f"{x['item'].split(' (')[0]} by {x['rfq_date'].isoformat()}" for x in first[:3]) + "."
 
 
 # ------------------------------------------------------------------ one-page PDF
@@ -346,7 +401,7 @@ def pdf_report(res) -> bytes:
     pdf.set_text_color(20, 20, 20)
     pdf.cell(W, 7, _latin(f"RackReady AI - {i['project_name']}"), new_x="LMARGIN", new_y="NEXT")
     text(f"{i['project_type']} | {i['region']} | {E.RESILIENCE[i['resilience']]} | {date.today().isoformat()} | "
-         f"{E.DISCLAIMER}", 7.5, color=(90, 90, 90))
+         f"{E.DISCLAIMER} AACE Class 5 concept estimate (-20% to -50% / +30% to +100%).", 7.5, color=(90, 90, 90))
     head("Summary")
     rec = res["recommendation"]
     table([["Total cost", "Per MW IT", "IT hardware", "Payback", "Ready for service"],
@@ -393,12 +448,99 @@ def pdf_report(res) -> bytes:
     sch = res["design"]["schedule"] if res["mode"] == "greenfield" else res["schedule"]
     text(f"Operating cost {money(x['opex'])}/yr; revenue year 1 {money(x['revenue'])} at ${x['gpu_price']:.2f}/GPU-hr, "
          f"{i['utilization']:.0%} utilization; NPV {money(x['npv'])} over {i['years']} years at 8%. "
-         f"Critical path: {sch['critical_path']} (~{sch['months_to_rfs']:.0f} months).", 7.5)
+         f"Critical path: {sch['critical_path']} (~{sch['months_to_rfs']:.0f} months to substantial completion). "
+         + _order_line(res), 7.5)
     head("Checks & warnings")
     ok = sum(c["ok"] for c in res["checks"])
-    text(f"{ok}/{len(res['checks'])} benchmark checks in range (JLL, Cushman & Wakefield, Uptime Institute, EIA, "
-         f"Wood Mackenzie, NVIDIA/OEM specs). " + " ".join(res["warnings"][:3]), 7.2)
+    text(f"{ok}/{len(res['checks'])} benchmark checks in range (public cost guides, industry surveys, government energy "
+         f"data, supply-chain studies, platform specifications). " + " ".join(res["warnings"][:3]), 7.2)
     pdf.set_y(-12)
     text(f"{E.DISCLAIMER} Generated by RackReady AI. Above 45 kW/rack the design uses direct-to-chip liquid cooling.",
          6.5, color=(110, 110, 110))
+    return bytes(pdf.output())
+
+
+# ------------------------------------------------------------------ build & commission checklist PDF (multi-page)
+def checklist_pdf(res) -> bytes:
+    from fpdf import FPDF
+
+    i = res["inputs"]
+    cx = res["cx"]
+    T = cx["tables"]
+    pdf = FPDF(orientation="P", unit="mm", format="Letter")
+    pdf.set_auto_page_break(True, 12)
+    pdf.set_margins(14, 12, 14)
+    pdf.add_page()
+    W = pdf.w - 28
+
+    def text(s, size=8.5, style="", h_=4.2, color=(30, 30, 30)):
+        pdf.set_font("Helvetica", style, size)
+        pdf.set_text_color(*color)
+        pdf.multi_cell(W, h_, _latin(s), new_x="LMARGIN", new_y="NEXT")
+
+    def head(s, size=11):
+        pdf.ln(2)
+        pdf.set_font("Helvetica", "B", size)
+        pdf.set_text_color(70, 120, 0)
+        pdf.multi_cell(W, 5.5, _latin(s), new_x="LMARGIN", new_y="NEXT")
+        pdf.set_draw_color(118, 185, 0)
+        pdf.line(14, pdf.get_y(), 14 + W, pdf.get_y())
+        pdf.ln(1)
+
+    def box(s):
+        pdf.set_font("Helvetica", "", 8.5)
+        pdf.set_text_color(30, 30, 30)
+        y = pdf.get_y()
+        if y > pdf.h - 20:
+            pdf.add_page()
+            y = pdf.get_y()
+        pdf.rect(14, y + 0.8, 2.8, 2.8)
+        pdf.set_x(19)
+        pdf.multi_cell(W - 5, 4.2, _latin(s), new_x="LMARGIN", new_y="NEXT")
+
+    S = cx["schedule"]
+    pdf.set_font("Helvetica", "B", 15)
+    pdf.cell(W, 7, _latin(f"Build & commission checklist - {i['project_name']}"), new_x="LMARGIN", new_y="NEXT")
+    text(f"{i['project_type']} | generated {date.today().isoformat()} | NTP month {S['ntp']:.1f} | substantial "
+         f"completion month {S['sc']:.1f} ({S['sc_date'].isoformat()}). {E.DISCLAIMER} Field use: confirm every value "
+         "against the project specifications, the approved submittals and the AHJ.", 8, color=(90, 90, 90))
+    head("Liquid-loop hard stop")
+    text(CX.HARD_STOP, 8.5, "B")
+    head("Order-by dates")
+    for r in T["order_by"]:
+        box(f"{r['Item']}: RFQ by {r['RFQ date']} (month {r['RFQ out by (month)']}), PO by month {r['PO by (month)']}, "
+            f"needed month {r['Need on site (month)']}. {r['Flag']}.")
+    head("Commissioning levels L1-L5")
+    for c in T["cx_levels"]:
+        text(f"{c['Level']} {c['Name']}", 9, "B")
+        text(f"Proves: {c['Proves']}")
+        box(f"Entry: {c['Entry']}")
+        box(f"Exit: {c['Exit']}")
+        text(f"Witnesses: {c['Witnesses']}", 8, color=(90, 90, 90))
+    head("Integrated systems test scenarios")
+    for r in T["ist_scenarios"]:
+        box(f"{r['Scenario']}: {r['Pass criteria']}")
+    head("Load banks")
+    for n in cx["load_banks"]["notes"]:
+        box(n)
+    head("Handoff feeds")
+    for r in T["handoff_feeds"]:
+        text(r["Feed"], 9, "B")
+        text(f"Scope: {r['Scope boundary']}  Spec: {r['Spec']}")
+        box(f"Test: {r['Test']}")
+        text(f"Common failure: {r['Common failure']}  Prevention: {r['Prevention']}", 8, color=(90, 90, 90))
+    head("IT-readiness sequence (30 steps)")
+    for r in T["it_readiness"]:
+        box(f"{r['Step']}. {r['Activity']}")
+    cur = None
+    for r in T["checklists"]:
+        if r["Checklist"] != cur:
+            cur = r["Checklist"]
+            head(f"QA checklist: {cur}", 10)
+        box(r["Item"])
+    head("Active risks")
+    for r in cx["risks"]:
+        if r["active"]:
+            box(f"{r['category']} (impact {r['impact_low']}-{r['impact_high']} months; owner {r['owner']}; "
+                f"{r['phase']}): trigger {r['trigger']}. Mitigation: {r['mitigation']}")
     return bytes(pdf.output())

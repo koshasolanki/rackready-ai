@@ -13,12 +13,25 @@ RackReady AI is a planning tool for owners, developers and contractors of high-d
 project type, a size, a GPU platform, a location and a redundancy level. In seconds you get:
 
 - a **one-screen summary**: total cost, cost per MW, payback, ready-for-service date and a recommendation;
-- **design calculations** with formulas and inputs: utility MVA, transformers, generators and fuel, UPS and
-  batteries, busway current, cooling tons, CDUs, coolant flows, heat rejection, water, floor loading and land;
+- **design calculations** with formulas, inputs and the code they follow: utility MVA, MV current and switchgear,
+  transformers, generators and fuel, UPS and batteries, A/B rack feeds, busway current and loading, cooling tons,
+  airflow (CFM), chilled-water gpm, thermal storage, CDUs, coolant flows, heat rejection, cooling-tower make-up,
+  fire protection (NFPA 13 sprinklers, NFPA 20 fire pump, NFPA 22 storage, NFPA 2001 clean agent), domestic water
+  (IPC fixtures, Hunter's curve), stormwater (rational method), network fiber and entrance diversity, floor loading
+  and land;
+- a **schedule** that scales with MW: pre-construction and build phases as a Gantt chart with overtime, weather and
+  congestion factors, **order-by dates** for every long-lead item (reverse-scheduled from the date it is needed, with
+  a buffer, flagging what must be ordered before notice to proceed) and current 2026 lead times;
+- an auto-enabled **risk register** (trigger, mitigation, owner, phase, impact in months);
+- a **Build & commission** tab: commissioning levels L1-L5, the liquid-loop hard stop, load banks and failure
+  scenarios, 10 construction-to-IT handoff feeds, a 30-step IT-readiness sequence and QA checklists, with CSV,
+  Markdown and a printable checklist PDF;
 - a **future-ready horizon** (5, 10 or 15 years) that prices retrofit later vs provisions now vs full future build;
-- **benchmark checks** against public 2025-2026 data (JLL, Cushman & Wakefield, Turner & Townsend, Uptime
-  Institute, EIA, Wood Mackenzie, NVIDIA/OEM specs);
-- exports: **one-page PDF**, full Markdown report with every calculation, and CSV tables.
+- **benchmark checks** against public 2025-2026 data (cost outlooks, industry surveys, government
+  energy data, supply-chain studies and platform specs);
+- stage gates 0-7, an AACE Class 5 estimate label, a specification quick reference and operations readiness;
+- exports: **one-page PDF**, a multi-page **checklist PDF**, a full Markdown report with every calculation, and CSV
+  tables.
 
 > All figures are an **indicative planning estimate, not a bid** (2026 US dollars, Northern Virginia = 1.00).
 
@@ -37,7 +50,13 @@ has a tooltip and results update as you type.
 **Presets:** 100 MW AI campus (greenfield, GB300 NVL72) · 10 MW edge AI hall (greenfield, H200 HGX) ·
 existing-hall fit-out (200 racks, 15 kW to GB300).
 
-**Tabs:** Costs · Future-ready · Design calculations · Operations & ROI · Schedule & risks · Assumptions & sources.
+**Tabs:** Costs · Future-ready · Design calculations · Operations & ROI · Schedule & risks · Build & commission ·
+Assumptions & sources.
+
+**Schedule inputs (Advanced):** project start date, design months, build months (0 = auto from MW:
+12 + 12 x sqrt(MW/100) for greenfield, 8 + 6 x sqrt(MW/100) for fit-out), months to utility power, work week
+(40-70 h), weather allowance and congestion factor. The ready-for-service date in the summary is the Gantt's
+substantial completion, which follows a passed integrated systems test.
 
 **Project types.**
 - *Greenfield* is one new build from scratch, with no "current" case. The facility is priced from a cost per MW of
@@ -62,8 +81,9 @@ the upgrade cost by division, and compares three paths on present cost: **retrof
 demolition, 4 months of lost margin), **provisions now** (pre-install structure, slab, site, pipe headers, pathways
 and pads; finish later at 1.10x with 1 month of lost margin) and **full future build on day one** (with upkeep on idle
 capacity). Later works are escalated, discounted and weighted by the probability that the target is deployed. It lists
-the provisions to build in (floor loading, liquid headers, busway pathways, rack bay, 800 VDC space at 400 kW and above,
-spare utility capacity, heat-rejection yard).
+the provisions to build in, each with the reason: floor loading, clear height, liquid headers, CDU space, busway
+pathways, 2x cable pathways, 800 VDC space, rack bay, power headroom (spare transformer bays), warm-water heat
+rejection and heat reuse, multi-fuel generators and space for on-site generation or battery storage.
 
 ![Future-ready tab](docs/future_ready.png)
 
@@ -84,22 +104,40 @@ spare utility capacity, heat-rejection yard).
 | Water | WUE 0.20 L/kWh (dry/adiabatic) | 140,160 m3/yr (37 M gal) |
 | Floor | 3,500 lb on a 0.6 x 1.068 m rack | 507 psf (24.3 kPa) on the footprint |
 | Building and land | 2,600 sf per MW; 35% site coverage | 260,000 sf; 26.2 acres |
+| MV switchgear | 80 MVA / (sqrt3 x 34.5 kV) = 1,339 A x 1.25 | 2,000 A bus per lineup (38 kV class) |
+| A/B rack check | each side carries the whole rack: 155 kW / 0.99 | 157 kVA per side; 300 A breaker |
+| Busway loading | 2,178 A / 3,000 A | 72.6% (limit 80%) |
+| Chilled water (US) | GPM = tons x 24 / dT (4,434 tons, 12.1 F) | 8,823 gpm (agrees with SI 8,851) |
+| Thermal storage | 10 min of chilled-water load, FOM 0.9 | 372 m3 (98,000 gal) |
+| Tower make-up (if towers were used) | M = E x CoC / (CoC - 1), CoC 5 | 885 gpm (2.9 gpm per 100 tons rejected) |
+| Sprinklers | OH-1 0.15 gpm/sf x 1,950 sf (+30% double-interlock) + 250 gpm hose | 542.5 gpm; 750 gpm fire pump; 32,550 gal for 60 min |
+| Clean agent | W = (V/S) x C/(100-C), S = 0.9856 + 0.002441 T | 2,047 lb FK-5-1-12 for 54,000 ft3 at 4.2%, 70 F |
+| Stormwater | Q = C i A (C 0.30 -> 0.69, 3 in/h, 26.2 ac) | 54 cfs; about 2.5 acre-ft detention (screening) |
+| Fiber | 72 GPUs x 16 fibers x 1.25 per rack | 1,440 fibers per rack; 853,632 backbone fibers |
 
 ![Design calculations tab](docs/design_calcs.png)
 
 ### Example results (presets, default inputs)
 | Preset | Design | Total cost | Per MW IT | IT hardware | Payback | Recommendation |
 |---|---|---|---|---|---|---|
-| 100 MW AI campus | GB300 NVL72, 741 racks, D2C, PUE 1.20 | $2.28B | $22.8M | $3.46B | 3.1 years | Build today + future-ready provisions (10-year horizon) |
-| 10 MW edge AI hall | H200 HGX, 239 racks, rear-door hybrid, PUE 1.35 | $181.3M | $18.1M | $340.7M | 6.7 years | Build today + future-ready provisions (5-year horizon) |
+| 100 MW AI campus | GB300 NVL72, 741 racks, D2C, PUE 1.20 | $2.32B | $23.2M | $3.46B | 3.1 years | Build today + future-ready provisions (10-year horizon) |
+| 10 MW edge AI hall | H200 HGX, 239 racks, rear-door hybrid, PUE 1.35 | $184.6M | $18.5M | $340.7M | 6.7 years | Build today + future-ready provisions (5-year horizon) |
 | Existing-hall fit-out | 200 racks, 15 kW air to GB300 D2C | $352.1M | $13.0M | $800.0M | 2.2 years | Fit out future-ready now |
+
+### Schedule (default 100 MW campus, project start 18 Oct 2026, 40 h week, +5% weather)
+Notice to proceed month 10.4; build 24 months (auto); energization starts month 37.2; **substantial completion
+month 43** (May 2030). The large power transformers set the date (about 9.5 months of waiting after field work is
+ready), so the RFQ must go out now. MV switchgear (RFQ by Jan 2027) and generators (RFQ by May 2027) must be
+ordered before notice to proceed.
 
 ### Verification
 Every number, its range and its source is listed in [docs/VERIFICATION.md](docs/VERIFICATION.md). The tests check the
 physics (MVA >= MW/PF, tons = kW/3.517, Q = P/(rho cp dT), I = P/(sqrt3 V PF), rejection >= load), the public ranges
 ($10-15M/MW air, $15-25M+/MW high density, PUE 1.1-1.5, US power $0.06-0.12/kWh, transformer lead time 1-2+ years,
-GPU rental within each platform's market range), the D2C switch at 40/50 kW and a 600 kW case. Anything without a
-public source is labelled as an assumption in the app.
+GPU rental within each platform's market range), the D2C switch at 40/50 kW and a 600 kW case, and every round-2
+calculation against a hand-worked code example (NFPA 13/20/2001, IPC, rational method, MV current, A/B, busway
+loading, tower make-up, order-by dates, Gantt factors). Anything without a public source is labelled as an
+assumption in the app.
 
 ## How NVIDIA Nemotron and Nebius Token Factory are used
 - **Model.** The default model is **`nvidia/Nemotron-3.5-Super-VL`**, called through **Nebius Token Factory's
@@ -167,9 +205,10 @@ Never commit `.streamlit/secrets.toml`; it is in `.gitignore`.
 rackready_ai/
 ├── app.py            # Streamlit UI: sidebar, summary, tabs, downloads
 ├── platforms.py      # GPU platform specs, cost basis per MW, division mix
-├── design.py         # step-by-step design calculations (power, cooling, water, space)
+├── design.py         # step-by-step design calculations (power, cooling, fire, water, site, network, space)
+├── buildcx.py        # schedule, order-by dates, risks, commissioning, handoffs, checklists, stage gates
 ├── engine.py         # costs, future-ready paths, OpEx/ROI, schedule, checks, presets
-├── report.py         # tables, Markdown report, one-page PDF (fpdf2)
+├── report.py         # tables, Markdown report, one-page PDF and checklist PDF (fpdf2)
 ├── llm.py            # Nebius / Nemotron client, prompt, rule-based fallback
 ├── ui_views.py       # tab layouts;  ui_common.py  # shared helpers
 ├── docs/VERIFICATION.md  # numbers, ranges, public sources

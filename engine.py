@@ -21,6 +21,7 @@ from __future__ import annotations
 import math
 from copy import deepcopy
 
+import buildcx as CX
 import design as DS
 import platforms as PL
 from design import AIR, COOLING_TYPES, D2C, D2C_AUTO_KW, HYBRID, effective_cooling
@@ -33,7 +34,7 @@ FITOUT, GREENFIELD = "Existing building fit-out", "Greenfield (new build)"
 PROJECT_TYPES = [GREENFIELD, FITOUT]
 
 RESILIENCE = {
-    "N": "N (Tier II-style, no redundancy)",
+    "N": "N (Tier I-style, no redundancy)",
     "N+1": "N+1 (Tier III-style, concurrently maintainable)",
     "N+2": "N+2 generators (Tier III+)",
     "2N": "2N power (Tier IV-style, fault tolerant)",
@@ -49,7 +50,7 @@ HORIZON_TEXT = {
     "Today only": "No future-proofing: design only for the day-one platform.",
     "5 years": "Vera Rubin NVL144 class, about 230 kW/rack (announced by NVIDIA for 2H 2026; estimate).",
     "10 years": "Rubin Ultra NVL576 / Kyber class, about 600 kW/rack with 800 VDC (announced for 2H 2027).",
-    "15 years": "1 MW-class racks (NVIDIA 800 VDC roadmap, Schneider Electric); speculative.",
+    "15 years": "1 MW-class racks (NVIDIA 800 VDC roadmap); speculative.",
 }
 HORIZON_ARRIVAL = {"5 years": 3, "10 years": 5, "15 years": 8}   # year the target racks go in
 
@@ -116,17 +117,8 @@ OPEX = {"maintenance_pct": 0.02, "insurance_pct": 0.003, "property_tax_pct": 0.0
         "staff_base_fte": 8, "staff_fte_per_mw": 0.5, "staff_cost": 140_000, "water_per_m3": 2.00,
         "hw_life_years": 5, "refresh_factor": 0.70, "discount_rate": 0.08}
 
-# Long-lead equipment (weeks). Transformers and generators are verified against public data.
-LONG_LEAD = [
-    ("Power transformers (HV/MV)", 80, 210, "Wood Mackenzie Q2 2025: average 128 weeks"),
-    ("Generator step-up / large GSU", 100, 210, "Wood Mackenzie Q2 2025: average 143 weeks"),
-    ("Standby generators (2-3 MW)", 78, 104, "Industry reporting 2025 (high-horsepower gensets)"),
-    ("MV switchgear", 40, 80, "Indicative; confirm with vendors"),
-    ("UPS modules & batteries", 30, 52, "Indicative; confirm with vendors"),
-    ("Chillers / dry coolers", 30, 50, "Indicative; confirm with vendors"),
-    ("CDUs", 20, 40, "Indicative; confirm with vendors"),
-    ("High-amp busway", 16, 30, "Indicative; confirm with vendors"),
-]
+# Long-lead equipment (weeks), current 2026 ranges: see buildcx.LEAD_TIMES (single source of truth).
+LONG_LEAD = [(name, lo, hi, basis) for _k, name, lo, hi, _t, basis in CX.LEAD_TIMES]
 TRANSFORMER_WEEKS = 128
 
 DEFAULT_INPUTS = {
@@ -142,7 +134,10 @@ DEFAULT_INPUTS = {
     "include_it": True, "include_fabric": True,
     # cost options
     "contingency": 0.08, "owner_pct": 0.03, "escalation": 0.05, "land_per_acre": None,
-    "interconnect": None, "months_to_power": 36, "design_months": 9, "construction_months": 18,
+    "interconnect": None, "months_to_power": 36, "design_months": 9, "construction_months": None,
+    # schedule (None / 0 = auto from MW)
+    "project_start": None, "fitout_build_months": None, "overtime_hours": 40, "weather_factor": 0.05,
+    "congestion_factor": 0.0,
     # engineering
     "fuel_hours": 48.0, "battery_min": 5.0, "voltage": 415.0, "tcs_dT": 10.0,
     # future-proof horizon
@@ -158,7 +153,7 @@ PRESETS = {
     "10 MW edge AI hall (greenfield, H200 HGX)": {
         "project_type": GREENFIELD, "project_name": "Edge AI hall - 10 MW", "size_by": "IT MW", "it_mw": 10.0,
         "platform": "H200 HGX", "region": "US - Dallas / Texas", "resilience": "N+1", "horizon": "5 years",
-        "cooling": HYBRID, "months_to_power": 18, "construction_months": 12, "design_months": 6},
+        "cooling": HYBRID, "months_to_power": 18, "design_months": 6},
     "Existing-hall fit-out (200 racks, 15 kW -> GB300)": {
         "project_type": FITOUT, "project_name": "Existing hall - 200 racks", "size_by": "Racks", "racks": 200,
         "platform": "GB300 NVL72", "region": "US - Northern Virginia", "resilience": "N+1",
@@ -220,7 +215,7 @@ def _design(p: dict, racks: float, cooling: str, i: dict, land_per_acre=0.0, gsf
                      weight_lb=p["weight_lb"], rack_w_m=p["rack_w_m"], rack_d_m=p["rack_d_m"],
                      white_sf=p["white_sf"], gsf_per_mw=gsf_per_mw or p["gsf_per_mw"], cdu_mw=p["cdu_mw"],
                      resilience=i["resilience"], utilization=i["utilization"], land_per_acre=land_per_acre,
-                     params=params)
+                     params=params, gpus=int(p.get("gpus") or 0))
 
 
 def _revenue_flows(invest, year1_rev, opex, hw, years, change, refresh_factor, life):
@@ -238,24 +233,13 @@ def _revenue_flows(invest, year1_rev, opex, hw, years, change, refresh_factor, l
     return flows, revs
 
 
-def _schedule(i, gf=True, needs_new_service=True):
-    if gf:
-        design_m = float(i.get("design_months") or 9)
-        build_m = float(i.get("construction_months") or 18)
-        power_m = float(i.get("months_to_power") or 36)
-        drivers = {"Utility power available + 6 months commissioning (IST)": power_m + 6,
-                   "Design, permits and construction": design_m + build_m,
-                   f"Transformers ({TRANSFORMER_WEEKS} weeks, ordered at month 3) + 3 months install/test":
-                       3 + TRANSFORMER_WEEKS / 4.345 + 3}
-    else:
-        design_m, build_m = FITOUT_RATES["design_months"], FITOUT_RATES["construction_months"]
-        drivers = {"Design, permits and fit-out construction": design_m + build_m,
-                   "Switchgear / UPS / CDU lead time (52 weeks) + 2 months install/test": 52 / 4.345 + 2}
-        if needs_new_service:
-            drivers["Utility service upgrade (transformers 128 weeks) + 3 months"] = TRANSFORMER_WEEKS / 4.345 + 3
-    crit = max(drivers, key=drivers.get)
-    return {"drivers": drivers, "critical_path": crit, "months_to_rfs": drivers[crit],
-            "mid_point_months": design_m + build_m / 2}
+def _plan(i, p, it_mw, racks, dz, gf=True, needs_new_service=True, horizon_active=False):
+    """Schedule, order-by dates, commissioning and risks (buildcx). months_to_rfs = substantial completion."""
+    cx = CX.plan(it_mw=it_mw, racks=racks, kw=p["kw"], cooling_d2c=dz["cooling"] == D2C, liquid=dz["liquid"],
+                 onsite_hv=bool(dz.get("onsite_hv")), greenfield=gf, i=i, platform_status=p.get("status", "shipping"),
+                 horizon_active=horizon_active, needs_new_service=needs_new_service,
+                 gen_mw=float(dz["params"].get("gen_mw", 3.0)))
+    return cx["schedule"], cx
 
 
 def _esc(i, months):
@@ -330,7 +314,9 @@ def run_greenfield(i: dict) -> dict:
                        params={"fuel_hours": i.get("fuel_hours"), "battery_min": i.get("battery_min"),
                                "voltage": i.get("voltage"), "tcs_dT": i.get("tcs_dT")})
     c = greenfield_cost(p, it_mw, dz, i)
-    sch = _schedule(i, gf=True)
+    h = i.get("horizon") or "Today only"
+    sch, cx = _plan(i, p, it_mw, racks, dz, gf=True,
+                    horizon_active=bool((i.get("future_kw") or HORIZONS.get(h) or 0) > p["kw"]))
     esc = (c["facility"] + c["owner"]) * _esc(i, sch["mid_point_months"])
     capex = c["facility"] + c["owner"] + esc + c["land"] + c["interconnect"]
     lines = {"Facility construction (incl. GC, contingency, location)": c["facility"],
@@ -350,7 +336,7 @@ def run_greenfield(i: dict) -> dict:
          "facility_per_mw": c["facility"] / it_mw, "capex_per_mw": capex / it_mw,
          "gsf": dz["v"]["gross_sf"], "facility_per_gsf": c["facility"] / dz["v"]["gross_sf"],
          "gpus": gpus, "it_hw": it_hw, "fabric": fabric, "schedule": sch, **eco}
-    res = {"mode": "greenfield", "inputs": i, "design": d, "future": fut, "long_lead": LONG_LEAD}
+    res = {"mode": "greenfield", "inputs": i, "design": d, "future": fut, "long_lead": LONG_LEAD, "cx": cx}
     res["warnings"] = _warnings(res)
     res["checks"] = benchmark_checks(res)
     res["recommendation"] = recommendation(res)
@@ -485,34 +471,52 @@ def _margin_in_year(eco, Y):
 
 
 def provision_list(p0, pT, dz0, dzT, T, spare, mode):
+    """Future-ready provisions: what to build in now, when to buy the rest, and why it pays."""
     v0, vT = dz0["v"], dzT["v"]
+    gf = mode == "greenfield"
     items = [
-        ("Structure", f"Design the slab/structure for {pT['weight_lb']:,.0f} lb racks "
+        ("Structure and floor load", f"Design the slab/structure for {pT['weight_lb']:,.0f} lb racks "
          f"({vT['rack_psf']:,.0f} psf on the footprint, {vT['caster_kn']:.1f} kN per caster) vs "
          f"{v0['rack_psf']:,.0f} psf today; reserve overhead hanger capacity for liquid headers.",
-         "Pre-install (cheap now, near-impossible later)"),
+         "Pre-install (cheap now, near-impossible later)",
+         "Rack weight rises every generation; strengthening a live hall means shutdowns, shoring and coring."),
+        ("Clear height", "Keep about 18-20 ft clear under structure in the data halls (slab-on-grade, overhead "
+         "busway, tray and liquid headers stacked in tiers).", "Structure now" if gf else "Check the existing hall",
+         "Overhead services multiply with density; height cannot be added to a finished building."),
         ("Liquid cooling", f"Size headers and pipe galleries for {vT['tcs_lps'] / max(vT['taps'] / 2, 1) * 60:,.0f} L/min "
-         f"per rack (today {v0['tcs_lps'] / max(v0['taps'] / 2, 1) * 60:,.0f}); valved taps for future CDUs "
-         f"({vT['cdus']:,.0f} CDUs at the target).", "Oversize pipework now; add CDUs later"),
+         f"per rack (today {v0['tcs_lps'] / max(v0['taps'] / 2, 1) * 60:,.0f}); valved taps for future CDUs.",
+         "Oversize pipework now; add CDUs later",
+         "Hot-tapping a live coolant loop risks the IT; pipe is a small share of cooling cost."),
+        ("CDU space", f"Reserve floor space, power and valved connections for {vT['cdus']:,.0f} CDUs at the target "
+         f"(today {v0['cdus']:,.0f}).", "Reserve space; buy later",
+         "CDUs are long-lead (30-50 weeks) and need floor area next to the halls."),
         ("Power distribution", f"Busway pathways and tap-off space for {vT['rack_amps']:,.0f} A per rack feed "
-         f"(today {v0['rack_amps']:,.0f} A); {vT['busway_rating']:,.0f} A row busway or 800 VDC.",
-         "Pathways and supports now; busway later"),
+         f"(today {v0['rack_amps']:,.0f} A); {vT['busway_rating']:,.0f} A row busway.",
+         "Pathways and supports now; busway later",
+         "Supports, penetrations and firestopping are cheap during construction and disruptive later."),
+        ("Pathways at 2x", "Cable tray, conduit and duct-bank capacity at about twice day-one fill, with "
+         "fire-rated sleeves left spare.", "Build the pathways now",
+         "Fabric fiber counts grow with every GPU generation; pathways are the hard part to add."),
+        ("800 VDC readiness", f"Reserve space and pathways for 800 VDC power conversion (sidecars or central "
+         f"rectifiers); a {T:,.0f} kW rack draws {T * 1000 / 54:,.0f} A at 54 VDC vs {T * 1000 / 800:,.0f} A at 800 VDC.",
+         "Reserve space and pathways; buy later",
+         "Announced MW-class racks move to 800 VDC distribution; at 54 VDC the copper becomes impractical."),
         ("Rack bay", f"Rack position {pT['rack_w_m'] * 1000:,.0f} x {pT['rack_d_m'] * 1000:,.0f} mm at the target "
          f"(today {p0['rack_w_m'] * 1000:,.0f} x {p0['rack_d_m'] * 1000:,.0f} mm); plan rows for "
-         f"{dzT['v']['taps'] / 2:,.0f} racks.", "Lay out rows and containment for both"),
+         f"{dzT['v']['taps'] / 2:,.0f} racks.", "Lay out rows and containment for both",
+         "Row pitch fixes the white space; changing it later moves every pipe and busway."),
+        ("Power headroom", f"Utility service {vT['service_mva']:,.0f} MVA at the target vs {v0['service_mva']:,.0f} MVA "
+         "today; spare transformer and switchgear bays, duct banks and pads.", "Contract the MW and build pads now",
+         "Utility capacity and large transformers are the longest leads (years); a bay is cheap."),
+        ("Heat rejection and warm water", f"Yard space for {vT['reject_kw'] / 1000:,.1f} MW of heat rejection "
+         f"(today {v0['reject_kw'] / 1000:,.1f} MW); warm-water design (facility supply about 30-45 C) for dry "
+         "coolers and future heat reuse.", "Reserve yard; add units later",
+         "Warm water allows dry coolers with little or no water use and makes heat export possible."),
+        ("Generators and on-site power", "Multi-fuel-capable generator plant (renewable diesel; gas-ready "
+         "pads) and yard space for on-site generation or battery storage.", "Reserve space and connections",
+         "Grid waits are long; bridging or on-site power may be needed later and needs space and permits."),
     ]
-    if T >= 400:
-        items.append(("800 VDC readiness", f"Reserve space for 800 VDC power conversion (sidecars or central "
-                      f"rectifiers); a {T:,.0f} kW rack draws {T * 1000 / 54:,.0f} A at 54 VDC vs "
-                      f"{T * 1000 / 800:,.0f} A at 800 VDC.", "Reserve space and pathways; buy later"))
-    if spare > 0 or vT["service_mva"] > v0["service_mva"] * 1.01:
-        items.append(("Spare utility capacity", f"Utility service {vT['service_mva']:,.0f} MVA at the target vs "
-                      f"{v0['service_mva']:,.0f} MVA today; spare transformer bays, duct banks and pads.",
-                      "Contract the MW and build pads now"))
-    items.append(("Heat rejection", f"Yard space for {vT['reject_kw'] / 1000:,.1f} MW of heat rejection "
-                  f"(today {v0['reject_kw'] / 1000:,.1f} MW); warm-water (45 C) design for dry coolers.",
-                  "Reserve yard; add units later"))
-    return [{"provision": a, "what": b, "when": c} for a, b, c in items]
+    return [{"provision": a, "what": b, "when": c, "why": w} for a, b, c, w in items]
 
 
 # =============================================================================== FIT-OUT
@@ -587,10 +591,11 @@ def run_fitout(i: dict) -> dict:
         s.update(eco)
     up = _retrofit(cur, fut, i)
     fut_paths = future_paths(i, p, fut["it_mw"], fut["cooling"], fut["design"], mode="fitout", fit=fut)
+    sch, cx = _plan(i, p, fut["it_mw"], fut["racks"], fut["design"], gf=False,
+                    needs_new_service=fut["design"]["v"]["service_mva"] > cur["design"]["v"]["service_mva"] * 1.1,
+                    horizon_active=bool(fut_paths.get("active")))
     res = {"mode": "fitout", "inputs": i, "platform": p, "current": cur, "future": fut, "upgrade": up,
-           "future_paths": fut_paths, "long_lead": LONG_LEAD,
-           "schedule": _schedule(i, gf=False, needs_new_service=fut["design"]["v"]["service_mva"] >
-                                 cur["design"]["v"]["service_mva"] * 1.1)}
+           "future_paths": fut_paths, "long_lead": LONG_LEAD, "schedule": sch, "cx": cx}
     res["warnings"] = _warnings(res)
     res["checks"] = benchmark_checks(res)
     res["recommendation"] = recommendation(res)
@@ -652,14 +657,14 @@ def _warnings(res):
     p = res["design"]["platform"] if res["mode"] == "greenfield" else res["platform"]
     if p.get("status") == "announced":
         w.append(f"{p['label']}: announced roadmap product. Rack power, weight, price and rental rate are estimates; "
-                 "confirm with NVIDIA/OEM before committing budget.")
+                 "confirm with the platform and system makers before committing budget.")
     if p.get("status") == "speculative":
         w.append(f"{p['kw']:,.0f} kW/rack is beyond announced products: the cost basis is speculative.")
     if p.get("status") == "estimated":
         w.append(f"{p['label']}: values are estimates (no public per-rack spec).")
     if res["mode"] == "greenfield":
         if float(i.get("months_to_power") or 36) < 18:
-            w.append("Months to utility power below 18 is optimistic for new large loads; JLL (2026) reports average "
+            w.append("Months to utility power below 18 is optimistic for new large loads; 2026 market reports show average "
                      "grid-connection waits above 4 years in primary markets. Use the utility's committed date.")
         if res["design"]["design"]["v"]["service_mva"] > 300:
             w.append("Utility service above 300 MVA usually needs a dedicated transmission-level substation and "
@@ -675,15 +680,16 @@ def _warnings(res):
 
 # Documented sanity ranges (see docs/VERIFICATION.md). Used by tests and shown in the app.
 RANGES = {
-    "facility_per_mw_air": (9e6, 16e6, "Air-cooled (<=30 kW/rack) facility $/MW IT: JLL 2026 $11.3M/MW shell & core, "
-                                       "Cushman & Wakefield 2026 $17.6M/MW all-in"),
+    "facility_per_mw_air": (9e6, 16e6, "Air-cooled (<=30 kW/rack) facility $/MW IT: 2026 market outlooks $11.3M/MW shell & core, "
+                                       "$17.6M/MW all-in"),
     "fitout_per_mw": (7e6, 30e6, "Fit-out of an existing shell $/MW IT (no land, site or new shell): "
                                  "assumption, below the all-in new-build ranges above"),
-    "facility_per_mw_hd": (14e6, 40e6, "High-density / liquid facility $/MW IT: $15-25M+/MW (JLL fit-out up to $25M/MW; "
+    "facility_per_mw_hd": (14e6, 40e6, "High-density / liquid facility $/MW IT: $15-25M+/MW (AI fit-out up to $25M/MW; "
                                        "Kyber-class above)"),
-    "pue": (1.10, 1.55, "PUE: Uptime 2025 average 1.54; new >=20 MW sites 1.44; liquid-cooled about 1.1-1.25"),
-    "power_cost": (0.05, 0.20, "Power $/kWh: EIA US industrial 2026 YTD about $0.09/kWh; Europe/Asia higher"),
-    "transformer_weeks": (80, 210, "Power transformer lead time: Wood Mackenzie Q2 2025 average 128 weeks"),
+    "pue": (1.10, 1.55, "PUE: 2025 industry survey average 1.54; new >=20 MW sites 1.44; liquid-cooled about 1.1-1.25"),
+    "power_cost": (0.05, 0.20, "Power $/kWh: US government data, industrial 2026 YTD about $0.09/kWh; Europe/Asia higher"),
+    "transformer_weeks": (100, 160, "Large power transformer lead time: 2025 industry supply-chain study average "
+                                    "128 weeks; 2026 quotes 100-150+ weeks"),
     "wue": (0.0, 2.6, "WUE L/kWh: dry/closed loop about 0-0.5; evaporative towers about 1.8-2.4"),
 }
 GPU_MARKET = {   # Oct 2026 public trackers: (low, high) $/GPU-hr across spot, reserved and on-demand
@@ -767,6 +773,19 @@ def summary_for_llm(res: dict) -> dict:
             "warnings": res["warnings"], "recommendation": res["recommendation"],
             "benchmark_checks": [{k: (round(v, 3) if isinstance(v, float) else v) for k, v in c.items()}
                                  for c in res["checks"]]}
+    S = res["cx"]["schedule"]
+    base["schedule"] = {
+        "notice_to_proceed_month": round(S["ntp"], 1), "build_months": round(S["build_months"], 1),
+        "energization_start_month": round(S["energization"], 1), "commissioning_start_month": round(S["cx_start"], 1),
+        "substantial_completion_month": round(S["sc"], 1), "critical_path": S["critical_path"],
+        "order_by": [{"item": x["item"], "rfq_by_month": round(x["rfq"], 1), "po_by_month": round(x["po"], 1),
+                      "need_month": round(x["need"], 1), "flag": x["flag"]} for x in S["items"]]}
+    base["risk_register"] = [{"category": r["category"], "mitigation": r["mitigation"], "owner": r["owner"],
+                              "impact_months": f"{r['impact_low']}-{r['impact_high']}"}
+                             for r in res["cx"]["risks"] if r["active"]]
+    base["estimate_class"] = CX.ESTIMATE_LABEL
+    base["commissioning"] = {"levels": [c["level"] + " " + c["name"] for c in CX.CX_LEVELS], "hard_stop": CX.HARD_STOP,
+                             "load_banks": res["cx"]["load_banks"]["notes"][:2]}
     fut = res["future"] if res["mode"] == "greenfield" else res["future_paths"]
     fp = None
     if fut.get("active"):
