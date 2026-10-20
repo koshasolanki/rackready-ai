@@ -65,3 +65,10 @@ def test_new_text_is_plain():
     assert not re.search(r"(January|February|March|April|May|June|July|August|September|October|November|"
                          r"December) 20[2-3]\d", new)
     assert not BANNED.search(_read("README.md"))
+
+
+def test_preset_labels_are_plain():
+    import engine as E
+    shown = [n for n, p in E.PRESETS.items() if p.get("project_type") != E.FITOUT]
+    assert shown == ["100 MW AI campus", "10 MW edge AI hall"]
+    assert E.DEFAULT_PRESET == "100 MW AI campus"

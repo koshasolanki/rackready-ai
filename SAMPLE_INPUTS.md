@@ -4,7 +4,7 @@ All numbers come from the built-in model at default settings (early budget estim
 default "Include in total" ticks: every cost line except on-site/bridging power, GPU hardware and the AI fabric.
 Choose a preset in the sidebar, then change any input; results update automatically.
 
-## Preset 1 (default): 100 MW AI campus, greenfield, GB300 NVL72
+## Preset 1 (default): 100 MW AI campus
 | Input | Value |
 |---|---|
 | Project type / size | Greenfield, 100 MW IT |
@@ -22,8 +22,8 @@ Schedule: notice to proceed about month 10, build 24 months (auto), **ready for 
 Fire: 542.5 gpm demand, 750 gpm pump, 32,550 gal; clean agent 2,047 lb. Future-ready paths (present cost): retrofit
 later $1.23B, **provisions now $1.02B** (the verdict), full future build $1.24B.
 
-## Preset 2: 10 MW edge AI hall, greenfield, H200 HGX, Dallas
-42 kW/rack, so you can choose the cooling: rear-door hybrid. 239 racks, PUE **1.35**, WUE **2.28 L/kWh** (towers),
+## Preset 2: 10 MW edge AI hall
+Greenfield, H200 HGX in Dallas at 42 kW/rack, so you can choose the cooling: rear-door hybrid. 239 racks, PUE **1.35**, WUE **2.28 L/kWh** (towers),
 18 MVA, 6 generators, 3,002 tons. Total **$188.1M** (**$18.8M/MW**; every line ticked $561.6M), IT **$340.7M**,
 payback **6.7 years**. Build auto 15.8 months; ready for IT about 26–38 months from start (power-chain long-lead
 equipment is the critical path).
@@ -45,5 +45,5 @@ equipment is the critical path).
 6. **Codes & procurement**: latest code editions, Confirm locally and US lead times.
 7. **Build & commission**: the liquid-loop hard stop, L1-L5 and IST scenarios; download the checklist PDF.
 8. Sidebar: Custom density 40 kW, then 50 kW: the cooling locks to D2C above 45 kW.
-9. Preset: 10 MW edge AI hall (H200 HGX): rear-door hybrid cooling, $188.1M, provisions now for the 5-year horizon; one-click PDF, report and CSV exports.
+9. Preset: 10 MW edge AI hall: H200 HGX, rear-door hybrid cooling, $188.1M, provisions now for the 5-year horizon; one-click PDF, report and CSV exports.
 10. Open the narrative written by NVIDIA Nemotron on Nebius Token Factory and download the one-page PDF.

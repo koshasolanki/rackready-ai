@@ -152,11 +152,11 @@ DEFAULT_INPUTS = {
 }
 
 PRESETS = {
-    "100 MW AI campus (greenfield, GB300 NVL72)": {
+    "100 MW AI campus": {
         "project_type": GREENFIELD, "project_name": "AI campus - 100 MW", "size_by": "IT MW", "it_mw": 100.0,
         "platform": "GB300 NVL72", "region": "US - Northern Virginia", "resilience": "N+1",
         "horizon": "10 years"},
-    "10 MW edge AI hall (greenfield, H200 HGX)": {
+    "10 MW edge AI hall": {
         "project_type": GREENFIELD, "project_name": "Edge AI hall - 10 MW", "size_by": "IT MW", "it_mw": 10.0,
         "platform": "H200 HGX", "region": "US - Dallas / Texas", "resilience": "N+1", "horizon": "5 years",
         "cooling": HYBRID, "months_to_power": 18, "design_months": 6},

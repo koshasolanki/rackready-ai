@@ -145,8 +145,8 @@ def test_official_event_name():
 
 
 def test_preset_totals_pinned():
-    want = {"100 MW AI campus (greenfield, GB300 NVL72)": (2328.2, 6076.2),
-            "10 MW edge AI hall (greenfield, H200 HGX)": (188.1, 561.6),
+    want = {"100 MW AI campus": (2328.2, 6076.2),
+            "10 MW edge AI hall": (188.1, 561.6),
             "Existing-hall fit-out (200 racks, 15 kW -> GB300)": (358.2, 1369.9)}
     for name, (total, total_all) in want.items():
         h = R.headline(E.run_model(E.PRESETS[name]))
@@ -175,8 +175,8 @@ def test_target_wording_every_horizon():
 
 def test_roadmap_day_one_density():
     assert "40-60 kW today" not in R.ROADMAP_TEXT and "typical enterprise" in R.ROADMAP_TEXT
-    for name, kw_text in [("100 MW AI campus (greenfield, GB300 NVL72)", "GB300 NVL72 about 135 kW/rack"),
-                          ("10 MW edge AI hall (greenfield, H200 HGX)", "H200 HGX about 42 kW/rack"),
+    for name, kw_text in [("100 MW AI campus", "GB300 NVL72 about 135 kW/rack"),
+                          ("10 MW edge AI hall", "H200 HGX about 42 kW/rack"),
                           ("Existing-hall fit-out (200 racks, 15 kW -> GB300)",
                            "GB300 NVL72 about 135 kW/rack (existing racks 15 kW/rack)")]:
         assert R.day_one_density(E.run_model(E.PRESETS[name])) == kw_text
