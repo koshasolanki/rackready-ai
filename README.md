@@ -2,6 +2,8 @@
 
 **Design, price and schedule an AI data center in seconds, from today's 135 kW GB300 racks to tomorrow's 600 kW.**
 
+Built by a data center construction cost professional to solve a problem they face at work.
+
 **Live app:** https://rackready-ai.streamlit.app · Built for the **Nebius x NVIDIA Global AI Hackathon** (2026)
 
 ![RackReady AI first screen: total cost, cost per MW, payback, ready-for-IT months and the verdict](docs/hero.png)
@@ -91,6 +93,7 @@ Never commit `.streamlit/secrets.toml`; it is in `.gitignore`.
   dates.
 
 ### NVIDIA Nemotron on Nebius Token Factory
+- **Why Nemotron.** The engine computes every number. Nemotron (default `nvidia/Nemotron-3.5-Super-VL`) on Nebius Token Factory turns those results into a plain-English brief on what to build now and the main risks. It is told never to change a number; the cards, tabs and exports come from the engine. If the call fails, a rule-based summary from the same numbers is shown.
 - **Model.** The default model is **`nvidia/Nemotron-3.5-Super-VL`**, called through **Nebius Token Factory's
   OpenAI-compatible endpoint** `https://api.tokenfactory.nebius.com/v1/` with the standard OpenAI Python SDK.
   Other selectable Nemotron models are listed in `SUGGESTED_MODELS` in [`llm.py`](llm.py)
@@ -176,6 +179,24 @@ rackready_ai/
 ![Design calculations tab: step-by-step table with formula, inputs and result](docs/design_calcs.png)
 
 ![Future-ready tab: present cost of the three paths and the provisions to build in](docs/future_ready.png)
+
+## Limitations and what's next
+
+**Limitations**
+- Early budget estimate (±30–50%), not a bid.
+- Costs use generic public benchmarks and labelled assumptions, not site quotes.
+- Codes, procurement and suppliers are US only. Other locations change only the cost, land and power price factors.
+- No site-specific utility or interconnection data; utility timing is one input (months to utility power).
+- Schedules are month ranges from start; real timing depends on the utility and the AHJ.
+- The AI text can be wrong; every number comes from the engine.
+- A licensed engineer and the AHJ must review any design.
+
+**Next**
+- Site and utility inputs (load study results, interconnection timing).
+- Local cost data for more locations.
+- More GPU platforms as they are announced.
+- Excel workbook export and phased campus builds.
+- Nemotron answering what-if questions by calling the engine as a tool.
 
 ## Compliance
 

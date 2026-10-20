@@ -140,3 +140,34 @@ TERMS = [
 def terms_markdown() -> str:
     return "\n\n".join([f"# {TERMS_TITLE}", TERMS_INTRO]
                        + [f"**{h}.** {t}" for h, t in TERMS]) + "\n"
+
+# ----------------------------------------------------------------- first screen, AI purpose, limitations
+START_HERE = ("**Start here:** pick a preset, or set the MW and GPU platform in the sidebar. Read the verdict, "
+              "then open the tabs for costs, schedule and design calculations.")
+
+
+def ai_purpose(model: str) -> str:
+    """One line on why Nemotron is used; `model` is the model id actually selected."""
+    return (f"Why Nemotron: the engine computes every number. Nemotron ({model}) on Nebius Token Factory turns "
+            "those results into a plain-English brief on what to build now and the main risks. It is told never "
+            "to change a number; the cards, tabs and exports come from the engine. If the call fails, a "
+            "rule-based summary from the same numbers is shown.")
+
+
+LIMITATIONS = [
+    "Early budget estimate (±30–50%), not a bid.",
+    "Costs use generic public benchmarks and labelled assumptions, not site quotes.",
+    "Codes, procurement and suppliers are US only. Other locations change only the cost, land and power price "
+    "factors.",
+    "No site-specific utility or interconnection data; utility timing is one input (months to utility power).",
+    "Schedules are month ranges from start; real timing depends on the utility and the AHJ.",
+    "The AI text can be wrong; every number comes from the engine.",
+    "A licensed engineer and the AHJ must review any design.",
+]
+NEXT_STEPS = [
+    "Site and utility inputs (load study results, interconnection timing).",
+    "Local cost data for more locations.",
+    "More GPU platforms as they are announced.",
+    "Excel workbook export and phased campus builds.",
+    "Nemotron answering what-if questions by calling the engine as a tool.",
+]

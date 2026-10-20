@@ -40,6 +40,7 @@ st.markdown("""
 div[data-testid="stMetric"] {background: #161B22; border: 1px solid #262C36; border-radius: 10px; padding: 10px 14px;}
 div[data-testid="stMetricValue"] {font-size: 1.45rem;}
 .rr-sub {color: #9AA4B2; margin-top: -0.6rem; font-size: 1.0rem;}
+.rr-start {color: #C9D1D9; font-size: 0.92rem; margin: 0.35rem 0 0.5rem 0;}
 .rr-badge {display:inline-block; background:#1f2a12; color:#76B900; border:1px solid #3d5a14;
   border-radius: 999px; padding: 2px 10px; font-size: 0.8rem; margin: 0 6px 4px 0;}
 @media (max-width: 640px) {
@@ -275,18 +276,21 @@ with st.sidebar:
 # ----------------------------------------------------------------- engine
 V.init_include_state()
 inputs["include"] = V.include_from_state()
+st.markdown("# ⚡ RackReady AI")
+st.markdown('<div class="rr-sub">Design, price and schedule an AI data center in seconds, '
+            'from today\'s 135 kW GB300 racks to tomorrow\'s 600 kW.</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="rr-start">{G.START_HERE.replace("**Start here:**", "<b>Start here:</b>")}</div>',
+            unsafe_allow_html=True)
 try:
-    res = E.run_model(inputs)
-    payload = E.summary_for_llm(res)
+    with st.spinner("Calculating design, costs and schedule..."):
+        res = E.run_model(inputs)
+        payload = E.summary_for_llm(res)
 except Exception as e:  # clear error, never a stack trace
     st.error(f"Could not compute this case: {type(e).__name__}: {e}. Check the inputs (size above zero, "
              "density within 5-1,500 kW/rack) or reload a preset.")
     st.stop()
 
 h = R.headline(res)
-st.markdown("# ⚡ RackReady AI")
-st.markdown('<div class="rr-sub">Design, price and schedule an AI data center in seconds, '
-            'from today\'s 135 kW GB300 racks to tomorrow\'s 600 kW.</div>', unsafe_allow_html=True)
 badges = [("🏗️ Greenfield new build" if gf else "🏢 Existing building fit-out"), h["platform"],
           f"{h['kw']:,.0f} kW/rack", f"{h['racks']:,} racks", f"{h['it_mw']:,.1f} MW IT", h["cooling"],
           inputs["region"], E.RESILIENCE[inputs["resilience"]].split(" (")[0],
@@ -340,6 +344,7 @@ def render_narrative():
 
 
 with st.expander("📝 Narrative: what this means for your project", expanded=False):
+    st.caption(esc_md(G.ai_purpose(model)))
     render_narrative()
 narrative_src, narrative = cache.get(key_hash, ("", ""))
 
@@ -390,6 +395,9 @@ with st.expander("📘 How it works"):
 - **AI.** Every number comes from the deterministic model; NVIDIA Nemotron on Nebius Token Factory writes the
   narrative, with a rule-based fallback when no key is set.
 """)
+    st.markdown("**Limitations**")
+    for line in G.LIMITATIONS:
+        st.markdown(esc_md(f"- {line}"))
     st.markdown("**Glossary**")
     for term, text in G.HOW_IT_WORKS:
         st.markdown(esc_md(f"- **{term}**: {text}"))
