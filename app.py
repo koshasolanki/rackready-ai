@@ -40,6 +40,8 @@ st.markdown("""
 div[data-testid="stMetric"] {background: #161B22; border: 1px solid #262C36; border-radius: 10px; padding: 10px 14px;}
 div[data-testid="stMetricValue"] {font-size: 1.45rem;}
 .rr-sub {color: #9AA4B2; margin-top: -0.6rem; font-size: 1.0rem;}
+.rr-dev {display:inline-block; background:#2a2312; color:#E3B341; border:1px solid #5a4614;
+  border-radius: 999px; padding: 2px 10px; font-size: 0.8rem; margin: -0.4rem 0 0.9rem 0;}
 .rr-start {color: #C9D1D9; font-size: 0.92rem; margin: 0.35rem 0 0.5rem 0;}
 .rr-badge {display:inline-block; background:#1f2a12; color:#76B900; border:1px solid #3d5a14;
   border-radius: 999px; padding: 2px 10px; font-size: 0.8rem; margin: 0 6px 4px 0;}
@@ -277,7 +279,8 @@ with st.sidebar:
 V.init_include_state()
 inputs["include"] = V.include_from_state()
 st.markdown("# ⚡ RackReady AI")
-st.markdown('<div class="rr-sub">Design, price and schedule an AI data center in seconds, '
+st.markdown('<div class="rr-dev">Under development: an early planning prototype. Results are indicative only.</div>'
+            '<div class="rr-sub">Design, price and schedule an AI data center in seconds, '
             'from today\'s 135 kW GB300 racks to tomorrow\'s 600 kW.</div>', unsafe_allow_html=True)
 st.markdown(f'<div class="rr-start">{G.START_HERE.replace("**Start here:**", "<b>Start here:</b>")}</div>',
             unsafe_allow_html=True)
